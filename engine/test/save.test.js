@@ -1,8 +1,8 @@
 // Salvataggio e ricaricamento dello stato.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MW, N, S, newGame, serialize, loadState, ent, occ, explored, proj, step, terr, deposits, genMap } from '../index.js';
-import { run, seedRandom } from './helpers.js';
+import { MW, N, E, S, newGame, serialize, loadState, ent, occ, explored, proj, step, terr, deposits, genMap } from '../index.js';
+import { run, runPinned, seedRandom } from './helpers.js';
 
 const roundTrip = () => JSON.parse(JSON.stringify(serialize()));
 
@@ -143,4 +143,34 @@ test('loadState accetta un salvataggio senza timers e lastWarn', () => {
   assert.equal(S.lastWarn, -99);
   assert.doesNotThrow(() => run(5));
   assert.ok(occ[S.ents.find(e => e.kind === 'struct').tx + S.ents.find(e => e.kind === 'struct').ty * MW] > 0);
+});
+
+test('un salvataggio con un edificio incompiuto dell’IA (campi ai*) si ricarica e prosegue uguale', () => {
+  // Genieri nemici inchiodati: la prima pompa dell'IA resta ferma e viene smontata dopo AI_STALL secondi.
+  let restore = seedRandom(3);
+  newGame('normale', 12345);
+  const pin = runPinned(25, E);
+  restore();
+  const s = S.ents.find(e => e.owner === E && e.kind === 'struct' && e.built < 1);
+  assert.ok(s, 'nessun edificio incompiuto dell’IA');
+  const saved = JSON.stringify(serialize());
+  const st = JSON.parse(saved).ents.find(e => e.id === s.id);
+  for (const f of ['aiA', 'aiB', 'aiC', 'aiD', 'aiT']) assert.equal(typeof st[f], 'number', `campo ${f} non salvato`);
+
+  restore = seedRandom(77);
+  runPinned(40, E, new Map(pin));
+  restore();
+  const a = JSON.stringify(serialize());
+  assert.ok(ent(s.id) === undefined && !occ[s.tx + s.ty * MW], 'senza ricaricare la pompa ferma non è stata smontata');
+
+  loadState(JSON.parse(saved));
+  const s2 = ent(s.id);
+  assert.ok(s2 && s2.built < 1 && s2.aiT === st.aiT, 'pompa incompiuta o campi ai* persi nel caricamento');
+  restore = seedRandom(77);
+  runPinned(40, E, new Map(pin));
+  restore();
+  assert.ok(a === JSON.stringify(serialize()), 'stato diverso dopo 40 s dal caricamento');
+  assert.equal(s2.dead, true, 'dopo il caricamento la pompa ferma non viene smontata');
+  assert.ok(S.ai.skip.includes(s.tx + s.ty * MW));
+  assert.doesNotThrow(() => run(60));
 });

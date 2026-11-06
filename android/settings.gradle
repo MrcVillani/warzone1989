@@ -1,0 +1,17 @@
+// Guscio Android di Warzone 1989: una WebView che carica il gioco dagli asset.
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = 'warzone1989'
+include ':app'

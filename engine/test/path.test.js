@@ -2,7 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  MW, MH, TILE, P, E, WATER, B0, newGame, terr, occ, passable, findPath, nearestFree, formation, makeUnit, S,
+  MW, MH, TILE, P, E, WATER, ROCK, GROUND, B0, newGame, terr, occ, passable, findPath, nearestFree, formation, makeUnit, S,
+  reachMap, reachableAdj,
 } from '../index.js';
 import { SEEDS, units, tileOf, run } from './helpers.js';
 
@@ -133,4 +134,68 @@ test('nearestFree e formation restituiscono caselle libere e distinte', () => {
   assert.equal(tiles.length, 9);
   assert.equal(new Set(tiles.map(([x, y]) => x + y * MW)).size, 9);
   for (const [x, y] of tiles) assert.ok(passable(x, y, false));
+});
+
+// Recinto di prova al centro della mappa: tutto roccia e senza edifici, poi si scavano le caselle volute.
+//   y=21:  (21) terra  (22) terra  (23) terra  (24) roccia
+//   y=22:  (21) acqua  (22) terra  (23) roccia (24) terra
+// (24,22) si tocca da (23,21) solo in diagonale, tagliando l'angolo: non è raggiungibile.
+function sandbox() {
+  newGame('normale', 12345);
+  for (let y = 18; y <= 26; y++) for (let x = 18; x <= 27; x++) { terr[x + y * MW] = ROCK; occ[x + y * MW] = 0; }
+  for (const [x, y] of [[21, 21], [22, 21], [23, 21], [22, 22], [24, 22]]) terr[x + y * MW] = GROUND;
+  terr[21 + 22 * MW] = WATER;
+}
+const at = (R, x, y) => R[x + y * MW];
+
+test('reachMap: passi da 1, senza tagliare gli angoli, acqua solo per gli hovercraft', () => {
+  sandbox();
+  const R = reachMap([[21, 21]], false);
+  assert.equal(R.length, MW * MH);
+  assert.equal(at(R, 21, 21), 1, 'la partenza vale 1');
+  assert.equal(at(R, 22, 21), 2);
+  assert.equal(at(R, 23, 21), 3);
+  assert.equal(at(R, 22, 22), 3, 'in diagonale da (21,21) no: l’acqua a (21,22) chiude l’angolo per i mezzi di terra');
+  assert.equal(at(R, 24, 22), 0, 'diagonale che taglia l’angolo di roccia');
+  assert.equal(at(R, 21, 22), 0, 'acqua per un mezzo di terra');
+  assert.equal(at(R, 20, 21), 0, 'roccia');
+  const reached = [];
+  for (let i = 0; i < R.length; i++) if (R[i]) reached.push(i);
+  assert.equal(reached.length, 4, 'fuori dal recinto non si arriva');
+
+  const Rw = reachMap([[21, 21]], true);
+  assert.equal(at(Rw, 21, 22), 2, 'l’hovercraft entra in acqua');
+  assert.equal(at(Rw, 22, 22), 2, 'con l’acqua percorribile la diagonale è libera');
+  assert.equal(at(Rw, 24, 22), 0);
+});
+
+test('reachMap: più partenze, partenza occupata, casella bloccata e partenze fuori mappa', () => {
+  sandbox();
+  occ[21 + 21 * MW] = 999; // un edificio sulla casella di partenza (come un geniere fermo accanto a una pompa)
+  const R = reachMap([[21, 21], [-1, 5], [MW, 0]], false);
+  assert.equal(at(R, 21, 21), 1, 'la partenza conta anche se occupata');
+  assert.equal(at(R, 23, 21), 3);
+  occ[21 + 21 * MW] = 0;
+
+  const Rb = reachMap([[21, 21]], false, 22 + 21 * MW);
+  assert.equal(at(Rb, 22, 21), 0, 'la casella bloccata non si raggiunge');
+  assert.equal(at(Rb, 23, 21), 0, 'oltre la casella bloccata non si passa');
+  assert.equal(at(Rb, 22, 22), 0);
+
+  const R2 = reachMap([[21, 21], [24, 22]], false);
+  assert.equal(at(R2, 24, 22), 1, 'ogni partenza vale 1');
+  assert.equal(at(R2, 23, 21), 3);
+});
+
+test('reachableAdj: solo le caselle attorno al rettangolo segnate nella mappa', () => {
+  sandbox();
+  const R = reachMap([[21, 21]], false);
+  assert.deepEqual(reachableAdj(22, 22, 1, 1, R), [[21, 21], [22, 21], [23, 21]]);
+  assert.deepEqual(reachableAdj(24, 22, 1, 1, R), [[23, 21]], 'la casella di partenza della diagonale conta come vicina');
+  assert.deepEqual(reachableAdj(21, 22, 2, 1, R), [[21, 21], [22, 21], [23, 21]], 'rettangolo largo 2: le caselle interne non contano');
+  assert.deepEqual(reachableAdj(25, 24, 1, 1, R), []);
+  // Ai bordi non esce dalla mappa.
+  const all = new Uint16Array(MW * MH).fill(1);
+  assert.deepEqual(reachableAdj(0, 0, 1, 1, all), [[1, 0], [0, 1], [1, 1]]);
+  assert.equal(reachableAdj(MW - 2, MH - 2, 2, 2, all).length, 5);
 });

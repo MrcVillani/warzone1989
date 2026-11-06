@@ -9,3 +9,4 @@ android/local.properties
 *.keystore
 *.apk
 .DS_Store
+android/app/src/main/assets/index.html
