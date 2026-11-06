@@ -1,6 +1,6 @@
 // Ordini e azioni: li usano sia il giocatore (dal client) sia l'IA nemica.
 import { TILE, MW, MH, P, E, GROUND, DIRT, STRUCTS, TECH_BY, DIFF, UNIT_CAP, BUILDER } from './data.js';
-import { S, terr, occ, depIdx, explored, emit, makeStruct, dStats } from './world.js';
+import { S, terr, occ, depIdx, explored, idx, emit, makeStruct, markOcc, dStats } from './world.js';
 import { pathTo, formation } from './path.js';
 import { ftile } from './util.js';
 
@@ -54,6 +54,15 @@ export function placeStruct(owner, type, tx, ty) {
   if (S.res[owner] < D.cost || !canPlace(owner, type, tx, ty)) return null;
   S.res[owner] -= D.cost;
   return makeStruct(type, owner, tx, ty, false);
+}
+// Smonta un edificio fuori dal combattimento: libera le caselle, ferma i genieri che ci lavoravano e, se non era
+// finito, restituisce tutto il costo. Niente eventi, niente effetti, niente statistiche di perdite.
+export function demolish(s) {
+  if (!s || s.dead || s.kind !== 'struct') return false;
+  s.dead = true; idx.delete(s.id); markOcc(s, 0);
+  if (s.built < 1) S.res[s.owner] += STRUCTS[s.type].cost;
+  for (const u of S.ents) if (u.kind === 'unit' && !u.dead && u.order.t === 'build' && u.order.id === s.id) setIdle(u);
+  return true;
 }
 export function unitCount(owner) {
   return S.ents.filter(e => e.owner === owner && e.kind === 'unit' && !e.dead).length

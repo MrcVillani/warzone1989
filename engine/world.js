@@ -60,7 +60,7 @@ export function newGame(diff, seed) {
   S = {
     seed, diff, time: 0, nextId: 1, ents: [], res: [600, 600], tech: [{}, {}],
     designs: [{ c: 'L', p: 'W', w: 'MG' }],
-    ai: { wave: 0, waveSize: DIFF[diff].w0, nextAttack: DIFF[diff].first, alert: null },
+    ai: { wave: 0, waveSize: DIFF[diff].w0, nextAttack: DIFF[diff].first, alert: null, skip: [] },
     stats: { built: [0, 0], lost: [0, 0], kills: [0, 0], made: [0, 0] },
     timers: { fog: 0, ai: 0, end: 0 }, lastWarn: -99,
     phase: 'play', explored: null,
