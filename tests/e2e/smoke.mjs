@@ -16,9 +16,20 @@ const url = pathToFileURL(path.join(root, 'dist/index.html')).href;
 
 const failures = [];
 const check = (ok, msg) => { if (!ok) failures.push(msg); console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); };
+// Problema noto, già segnalato e non ancora corretto: lo stampa ma non fa fallire la prova.
+const known = [];
+const todo = (ok, msg) => { if (!ok) known.push(msg); console.log(`${ok ? 'ok  ' : 'TODO'} ${msg}`); };
 
 const browser = await chromium.launch();
-for (const [name, opts] of [['desktop', { viewport: { width: 1280, height: 800 } }], ['telefono', devices['Pixel 7']]]) {
+// Profili: computer, telefono in verticale e telefono in orizzontale (l'app Android gira solo in orizzontale).
+const landscape = { ...devices['Pixel 7'], viewport: { width: 851, height: 393 }, screen: { width: 851, height: 393 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 };
+const profiles = [
+  ['desktop', { viewport: { width: 1280, height: 800 } }],
+  ['telefono', devices['Pixel 7']],
+  ['telefono-orizzontale', landscape],
+];
+const only = process.env.E2E_PROFILE; // per provare un solo profilo: E2E_PROFILE=telefono-orizzontale
+for (const [name, opts] of profiles.filter(([n]) => !only || n === only)) {
   const page = await browser.newPage(opts);
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -41,13 +52,34 @@ for (const [name, opts] of [['desktop', { viewport: { width: 1280, height: 800 }
   await page.waitForTimeout(300);
   await page.screenshot({ path: path.join(outDir, `${name}-partita.png`) });
 
+  // Disposizione: barra, mappa e pannello tutti visibili, dentro lo schermo e non sovrapposti.
+  const lay = await page.evaluate(() => {
+    const r = id => { const b = document.getElementById(id).getBoundingClientRect(); return { x: b.left, y: b.top, w: b.width, h: b.height, r: b.right, b: b.bottom }; };
+    return { vw: window.innerWidth, vh: window.innerHeight, bar: r('bar'), stage: r('stage'), panel: r('panel'), tabs: r('tabs') };
+  });
+  const inside = b => b.w > 0 && b.h > 0 && b.x >= -0.5 && b.y >= -0.5 && b.r <= lay.vw + 0.5 && b.b <= lay.vh + 0.5;
+  check(inside(lay.bar) && inside(lay.stage) && inside(lay.panel), `${name}: barra, mappa e pannello dentro lo schermo ${lay.vw}×${lay.vh}`);
+  check(lay.bar.b <= lay.stage.y + 0.5 && lay.bar.b <= lay.panel.y + 0.5, `${name}: la barra non copre mappa e pannello`);
+  check(lay.stage.w >= 0.45 * lay.vw && lay.stage.h >= 0.4 * lay.vh,
+    `${name}: la mappa occupa abbastanza spazio (${Math.round(lay.stage.w)}×${Math.round(lay.stage.h)})`);
+  // Le schede del pannello (Costruisci, Produzione…) si raggiungono scorrendo il pannello e rispondono al tocco.
+  await page.locator('#tabs button[data-tab="prod"]').scrollIntoViewIfNeeded();
+  await page.locator('#tabs button[data-tab="prod"]').click();
+  const tabOn = await page.evaluate(() => document.querySelector('#tabs button[data-tab="prod"]').classList.contains('on'));
+  check(tabOn, `${name}: la scheda «Produzione» del pannello si raggiunge e si apre`);
+  await page.locator('#tabs button[data-tab="build"]').click();
+  await page.evaluate(() => { document.getElementById('panel').scrollTop = 0; });
+  // Senza scorrere il pannello, le schede dovrebbero essere già in vista (in orizzontale la carta le spinge sotto).
+  todo(lay.tabs.y >= lay.panel.y - 0.5 && lay.tabs.b <= lay.panel.b + 0.5,
+    `${name}: le schede del pannello sono in vista senza scorrerlo (schede a y=${Math.round(lay.tabs.y)}, fondo del pannello a ${Math.round(lay.panel.b)})`);
+
   // Con il giocatore fermo, l'IA deve attaccare e vincere entro 15 minuti di gioco.
   const end = await page.evaluate(() => {
     const W = window.__wz;
     for (let i = 0; i < 20 * 60 * 15 && W.S.phase === 'play'; i++) W.step(0.05);
-    return { phase: W.S.phase, time: Math.round(W.S.time), wave: W.S.ai.wave };
+    return { phase: W.S.phase, time: Math.round(W.S.time), wave: W.S.ai.wave, seed: W.S.seed };
   });
-  check(end.phase === 'lost' && end.wave >= 1, `${name}: l’IA attacca e vince contro un giocatore fermo (${end.time} s, ondate ${end.wave})`);
+  check(end.phase === 'lost' && end.wave >= 1, `${name}: l’IA attacca e vince contro un giocatore fermo (${end.time} s, ondate ${end.wave}, seme della mappa ${end.seed})`);
   await page.waitForTimeout(300);
   check(await page.locator('#ovAgain').isVisible(), `${name}: compare il rapporto finale`);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
@@ -56,5 +88,6 @@ for (const [name, opts] of [['desktop', { viewport: { width: 1280, height: 800 }
   await page.close();
 }
 await browser.close();
+if (known.length) console.log(`\n${known.length} problemi noti (TODO), non bloccanti:\n- ${known.join('\n- ')}`);
 if (failures.length) { console.error(`\n${failures.length} controlli falliti.`); process.exit(1); }
 console.log('\nTutti i controlli sono passati.');
