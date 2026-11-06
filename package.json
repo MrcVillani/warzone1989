@@ -1,0 +1,16 @@
+{
+  "name": "warzone1989",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Warzone 1989: strategia in tempo reale 2D vista dall'alto.",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test engine/test/",
+    "e2e": "npm run build && node tests/e2e/smoke.mjs",
+    "check": "npm test && npm run e2e"
+  },
+  "devDependencies": {
+    "esbuild": "0.24.2"
+  }
+}

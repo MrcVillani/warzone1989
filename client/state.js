@@ -1,0 +1,15 @@
+// Stato del solo client: interfaccia, camera, selezione, effetti visivi. Niente regole di gioco qui.
+export const FACTION = ['Brigata Aurora', 'Direttorio Ferreo'];
+export const PAL = [
+  { body: '#c98a2e', dark: '#5e3f12', light: '#efc47c', dot: '#f0b04a' },
+  { body: '#a8463b', dark: '#4f1c17', light: '#dd8b7f', dot: '#e0564a' },
+];
+export const ui = {
+  tab: 'build', placing: null, amove: false, mode: 'select', producer: 0,
+  draft: { c: 'L', p: 'W', w: 'MG' }, key: '', paused: true, speed: 1, overlay: 'start',
+  diff: 'normale', groups: {}, sel: [], lastGroup: null, lastGroupT: 0,
+};
+export const cam = { x: 0, y: 0, z: 1 };
+export const view = { dpr: 1, cw: 800, ch: 600 };
+export const hover = { x: 0, y: 0, in: false };
+export const fxs = { parts: [], fx: [], pings: [], boxSel: null };

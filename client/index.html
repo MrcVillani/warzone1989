@@ -1,0 +1,57 @@
+<title>Warzone 1989</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Stardos+Stencil:wght@400;700&family=IBM+Plex+Sans+Condensed:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/*__CSS__*/
+</style>
+
+
+<div id="app">
+  <header id="bar">
+    <div class="brand" aria-label="Warzone 1989"><span class="w">WARZONE</span><span class="y">1989</span></div>
+    <div class="readouts">
+      <div class="ro res"><span class="k">Gasolio</span><span class="v" id="roRes">600</span></div>
+      <div class="ro"><span class="k">Pompe</span><span class="v" id="roPumps">0</span></div>
+      <div class="ro"><span class="k">Mezzi</span><span class="v" id="roUnits">0</span></div>
+      <div class="ro"><span class="k">Tempo</span><span class="v" id="roTime">00:00</span></div>
+    </div>
+    <div class="barbtns">
+      <button class="btn" id="btnSpeed" title="Velocità di gioco">1×</button>
+      <button class="btn" id="btnPause">Pausa</button>
+      <button class="btn" id="btnHelp">Comandi</button>
+    </div>
+  </header>
+  <div id="body">
+    <main id="stage">
+      <canvas id="view" aria-label="Mappa tattica"></canvas>
+      <div id="touchbar">
+        <button class="btn touch-only" id="btnMode">Sposta mappa</button>
+        <button class="btn" id="btnAmove" title="Attacca-muovi (A)">Attacca-muovi</button>
+        <button class="btn" id="btnStop" title="Ferma (S)">Ferma</button>
+        <button class="btn touch-only" id="btnDesel">Deseleziona</button>
+      </div>
+      <div id="toasts" aria-live="polite"></div>
+    </main>
+    <aside id="panel">
+      <div class="mm">
+        <div class="cap"><span>Carta operativa</span><span id="mmRef">—</span></div>
+        <canvas id="mini" aria-label="Minimappa"></canvas>
+      </div>
+      <section class="sel" id="sel"></section>
+      <nav class="tabs" id="tabs">
+        <button data-act="tab" data-tab="build">Costruisci</button>
+        <button data-act="tab" data-tab="prod">Produzione</button>
+        <button data-act="tab" data-tab="res">Ricerca</button>
+        <button data-act="tab" data-tab="des">Progetta</button>
+      </nav>
+      <div id="tabbody"></div>
+    </aside>
+  </div>
+</div>
+<div id="overlay"></div>
+
+<script>
+/*__JS__*/
+</script>
