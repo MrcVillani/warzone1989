@@ -207,6 +207,8 @@ button { font: inherit; color: inherit; }
 .diff { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .diff .lbl { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); margin-right: 4px; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+/* Su schermi bassi il pulsante d'avvio resta in vista: si ferma in fondo mentre il resto della scheda scorre. */
+.card > .actions { position: sticky; bottom: 0; z-index: 1; background: var(--hull); margin: -6px 0; padding: 6px 0; }
 .actions .primary { font-size: 15px; padding: 10px 16px; }
 .controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 18px; margin: 0; font-size: 12.5px; border-top: 1px solid var(--rule); padding-top: 12px; }
 .controls div { display: flex; gap: 8px; min-width: 0; }
@@ -217,7 +219,9 @@ button { font: inherit; color: inherit; }
 .stats b { display: block; font-family: var(--f-mono); font-size: 20px; font-weight: 500; color: var(--amber-hi); font-variant-numeric: tabular-nums; }
 .stats span { font-size: 11px; color: var(--dim); letter-spacing: 0.06em; text-transform: uppercase; }
 
-@media (max-width: 760px) {
+/* Telefono in verticale o finestra stretta: pannello sotto la mappa. Non vale per i telefoni in orizzontale
+   (bassi e larghi), che usano la disposizione affiancata compatta qui sotto. */
+@media (max-width: 760px) and (orientation: portrait), (max-width: 760px) and (min-height: 521px) {
   #body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 42%); }
   .brand .w, .brand .y { font-size: 19px; }
   .ro { min-width: 52px; padding: 3px 7px; }
@@ -231,5 +235,37 @@ button { font: inherit; color: inherit; }
   .controls { grid-template-columns: minmax(0, 1fr); }
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .card { padding: 18px 16px; }
+}
+/* Schermi bassi e larghi (telefono in orizzontale, l'app Android): barra più bassa, minimappa piccola accanto
+   alla selezione e schede del pannello sempre in vista; scorre solo il contenuto della scheda. */
+@media (max-height: 520px) and (orientation: landscape) {
+  #app { gap: 6px; padding-block: 6px; }
+  #bar { gap: 6px 14px; }
+  .brand .w, .brand .y { font-size: 19px; }
+  .ro { min-width: 54px; padding: 3px 8px; }
+  .ro .v { font-size: 13px; }
+  .barbtns .btn { padding: 5px 9px; font-size: 12px; }
+  #body { grid-template-columns: minmax(0, 1fr) clamp(280px, 40vw, 340px); gap: 8px; }
+  #panel { display: grid; grid-template-columns: 148px minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); overflow: hidden; }
+  .mm { padding: 8px; border-right: 1px solid var(--rule); }
+  .mm .cap { margin-bottom: 4px; }
+  .mm .cap span:first-child { display: none; }
+  /* La selezione non allunga la riga: prende l'altezza della minimappa e scorre se serve. */
+  .selhead { flex-wrap: wrap; row-gap: 3px; }
+  .kv { column-gap: 8px; }
+  .sel { min-height: 0; padding: 8px 10px; contain: size; overflow-y: auto; overscroll-behavior: contain; }
+  .tabs, #tabbody { grid-column: 1 / -1; }
+  #tabbody { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  #overlay { padding-top: max(10px, env(safe-area-inset-top, 0px)); padding-bottom: max(10px, env(safe-area-inset-bottom, 0px)); }
+  .card { padding: 14px 20px 14px; gap: 10px; }
+  .title { font-size: 46px; }
+  .brief { font-size: 14px; line-height: 1.45; }
+}
+/* Schermi touch: bersagli di almeno 44 px ed etichette leggibili. */
+@media (pointer: coarse) {
+  .btn, .tabs button, .chip, .seg button, .primary { min-height: 44px; }
+  .qrow .x { width: 44px; height: 44px; }
+  .ro .k, .mm .cap, .sec, .diff .lbl, .tag { font-size: 11px; }
+  .tabs button { font-size: 12.5px; }
 }
 @media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
