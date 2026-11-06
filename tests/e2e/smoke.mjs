@@ -69,8 +69,9 @@ for (const [name, opts] of profiles.filter(([n]) => !only || n === only)) {
   check(tabOn, `${name}: la scheda «Produzione» del pannello si raggiunge e si apre`);
   await page.locator('#tabs button[data-tab="build"]').click();
   await page.evaluate(() => { document.getElementById('panel').scrollTop = 0; });
-  // Senza scorrere il pannello, le schede dovrebbero essere già in vista (in orizzontale la carta le spinge sotto).
-  todo(lay.tabs.y >= lay.panel.y - 0.5 && lay.tabs.b <= lay.panel.b + 0.5,
+  // Senza scorrere il pannello, le schede devono essere già in vista (anche in orizzontale, dove prima la carta
+  // le spingeva sotto il bordo).
+  check(lay.tabs.y >= lay.panel.y - 0.5 && lay.tabs.b <= lay.panel.b + 0.5,
     `${name}: le schede del pannello sono in vista senza scorrerlo (schede a y=${Math.round(lay.tabs.y)}, fondo del pannello a ${Math.round(lay.panel.b)})`);
 
   // Con il giocatore fermo, l'IA deve attaccare e vincere entro 15 minuti di gioco.

@@ -5,7 +5,7 @@ import {
   MW, MH, TILE, P, E, WATER, ROCK, FOREST, B0, B1, STRUCTS, TECH_BY, BUILDER, UNIT_CAP, DIFF,
   S, newGame, terr, occ, deposits, depIdx, explored, ent, makeStruct, makeUnit, dStats,
   canPlace, placeStruct, enqueue, cancelQueued, unitCount, techAvail, startResearch, researching,
-  cmdMove, cmdAttack, cmdBuild, cmdStop,
+  cmdMove, cmdAttack, cmdBuild, cmdStop, demolish,
 } from '../index.js';
 import { units, playerBuilder, nearestExploredDeposit, findSpot, recordEvents, run, tileOf } from './helpers.js';
 
@@ -299,4 +299,90 @@ test('cmdMove con attacco in movimento: i genieri si muovono e basta', () => {
   cmdMove([b, m], (B0.x + 6.5) * TILE, (B0.y + 1.5) * TILE, true);
   assert.equal(b.order.t, 'move');
   assert.equal(m.order.t, 'amove');
+});
+
+// demolish: smontaggio di un edificio fuori dal combattimento (lo usa l'IA per gli edifici incompiuti bloccati).
+const demolishCase = owner => {
+  newGame('normale', 12345);
+  S.timers.ai = 1e9; // l'IA non deve toccare né gasolio né genieri durante la prova
+  const [x, y] = owner === P ? findSpot(P, 'factory', B0.x + 4, B0.y + 2) : findSpot(E, 'factory', B1.x - 6, B1.y - 3);
+  const before = S.res[owner];
+  const s = placeStruct(owner, 'factory', x, y);
+  assert.ok(s, 'fabbrica non piazzata');
+  assert.equal(S.res[owner], before - STRUCTS.factory.cost);
+  return { s, before };
+};
+const tilesOf = s => { const t = []; for (let y = s.ty; y < s.ty + s.h; y++) for (let x = s.tx; x < s.tx + s.w; x++) t.push(x + y * MW); return t; };
+
+test('demolish: un edificio incompiuto libera le caselle e rimborsa tutto il costo', () => {
+  for (const owner of [P, E]) {
+    const { s, before } = demolishCase(owner);
+    const id = s.id, cells = tilesOf(s);
+    assert.ok(cells.every(i => occ[i] === id));
+    const stats = structuredClone(S.stats);
+    const ev = recordEvents();
+    assert.equal(demolish(s), true);
+    assert.equal(s.dead, true);
+    assert.equal(ent(id), undefined, 'l’edificio resta nell’indice');
+    assert.ok(cells.every(i => occ[i] === 0), 'caselle ancora occupate');
+    assert.equal(S.res[owner], before, `lato ${owner}: rimborso non pieno`);
+    assert.equal(canPlace(owner, 'factory', s.tx, s.ty), true, 'il posto non torna libero');
+    run(0.5);
+    ev.stop();
+    assert.ok(!S.ents.includes(s), 'l’edificio smontato resta tra le entità');
+    assert.deepEqual(ev.of('toast'), [], 'demolish non deve mostrare avvisi');
+    assert.deepEqual(ev.of('fx'), [], 'demolish non deve mostrare esplosioni');
+    assert.deepEqual(S.stats.lost, stats.lost, 'conta come perdita');
+    assert.deepEqual(S.stats.kills, stats.kills, 'conta come uccisione');
+  }
+});
+
+test('demolish: un edificio quasi finito rimborsa comunque tutto, uno finito niente', () => {
+  let { s, before } = demolishCase(E);
+  s.built = 0.99; s.hp = s.max * 0.9;
+  demolish(s);
+  assert.equal(S.res[E], before, 'incompiuto al 99%: rimborso pieno');
+
+  ({ s, before } = demolishCase(E));
+  s.built = 1; s.hp = s.max;
+  const lost = [...S.stats.lost];
+  demolish(s);
+  assert.equal(S.res[E], before - STRUCTS.factory.cost, 'un edificio finito non si rimborsa');
+  assert.ok(tilesOf(s).every(i => occ[i] === 0));
+  assert.deepEqual(S.stats.lost, lost);
+});
+
+test('demolish: i genieri che ci lavoravano tornano fermi, gli altri no', () => {
+  const { s } = demolishCase(P);
+  const b = playerBuilder();
+  const other = units(P, u => u.builder && u !== b)[0];
+  const tank = units(P, u => !u.builder)[0];
+  cmdBuild([b], s);
+  const dep = nearestExploredDeposit(other);
+  const pump = placeStruct(P, 'pump', dep.x, dep.y);
+  cmdBuild([other], pump);
+  cmdMove([tank], tank.x + 3 * TILE, tank.y);
+  run(1);
+  assert.equal(b.order.t, 'build');
+  demolish(s);
+  assert.deepEqual(b.order, { t: 'idle' });
+  assert.equal(b.path, null);
+  assert.deepEqual(other.order, { t: 'build', id: pump.id }, 'il geniere su un altro edificio cambia ordine');
+  assert.equal(tank.order.t, 'move', 'un mezzo estraneo cambia ordine');
+  assert.doesNotThrow(() => run(2));
+  assert.equal(b.order.t, 'idle');
+});
+
+test('demolish: rifiuta mezzi, edifici già distrutti e valori nulli senza cambiare nulla', () => {
+  const { s } = demolishCase(E);
+  const u = units(E)[0];
+  const res = [...S.res], n = S.ents.length;
+  assert.equal(demolish(u), false);
+  assert.equal(u.dead, undefined);
+  assert.equal(demolish(null), false);
+  assert.equal(demolish(undefined), false);
+  assert.equal(demolish(s), true);
+  assert.equal(demolish(s), false, 'la seconda volta non rimborsa di nuovo');
+  assert.equal(S.res[E], res[E] + STRUCTS.factory.cost);
+  assert.equal(S.ents.length, n);
 });
