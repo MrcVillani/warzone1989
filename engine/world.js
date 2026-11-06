@@ -84,16 +84,22 @@ function setupWorld() {
   idx.clear(); proj.length = 0;
   emit('world');
 }
+// I proiettili in volo vivono nell'array esportato `proj`, fuori da S: il salvataggio li porta nel campo `proj`
+// e il caricamento li rimette nell'array (S non contiene mai il campo `proj`).
 export function loadState(st) {
-  S = st;
+  const { proj: saved, ...rest } = st;
+  S = rest;
   S.timers = S.timers || { fog: 0, ai: 0, end: 0 };
   if (S.lastWarn == null) S.lastWarn = -99;
   setupWorld();
   for (const e of S.ents) { idx.set(e.id, e); if (e.kind === 'struct') markOcc(e, e.id); }
+  if (Array.isArray(saved)) for (const p of saved) proj.push({ ...p });
   updateFog();
   return S;
 }
-export function serialize() { return S ? Object.assign({}, S, { explored: Array.from(explored) }) : null; }
+export function serialize() {
+  return S ? Object.assign({}, S, { explored: Array.from(explored), proj: proj.map(p => ({ ...p })) }) : null;
+}
 
 /* ---------- visibilità del giocatore ---------- */
 export function canSee(owner, e) {

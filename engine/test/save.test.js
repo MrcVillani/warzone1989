@@ -62,8 +62,6 @@ test('da uno stato salvato la simulazione procede come se non si fosse mai ferma
     let restore = seedRandom(5);
     newGame('normale', 12345);
     run(at);
-    // Si salva quando non ci sono proiettili in volo (vedi il test «todo» sotto).
-    while (proj.length) step(0.05);
     restore();
     const saved = JSON.stringify(serialize());
     restore = seedRandom(77);
@@ -79,15 +77,60 @@ test('da uno stato salvato la simulazione procede come se non si fosse mai ferma
   }
 });
 
-test('i proiettili in volo sopravvivono al salvataggio', { todo: 'proj è fuori da S: serialize non lo salva e loadState lo svuota' }, () => {
+test('i proiettili in volo sopravvivono al salvataggio', () => {
   const restore = seedRandom(7);
   try {
     newGame('normale', 12345);
     while (S.phase === 'play' && proj.length === 0) step(0.05);
     assert.ok(proj.length > 0);
-    const n = proj.length;
-    loadState(JSON.parse(JSON.stringify(serialize())));
-    assert.equal(proj.length, n);
+    const before = proj.map(p => ({ ...p }));
+    const saved = JSON.parse(JSON.stringify(serialize()));
+    assert.ok(Array.isArray(saved.proj), 'serialize include il campo proj');
+    assert.deepEqual(saved.proj, before);
+    assert.ok(!('proj' in S), 'lo stato vivo non contiene proj');
+
+    newGame('facile', 1); // svuota proj
+    assert.equal(proj.length, 0);
+    loadState(saved);
+    assert.deepEqual(proj, before);
+    assert.ok(!('proj' in S), 'dopo il caricamento S non contiene il campo proj');
+    // I proiettili ricaricati sono copie: modificarli non tocca il salvataggio.
+    proj[0].x += 1;
+    assert.equal(saved.proj[0].x, before[0].x);
+    assert.doesNotThrow(() => run(5));
+  } finally { restore(); }
+});
+
+test('salvare con proiettili in volo non cambia il seguito della partita', () => {
+  let restore = seedRandom(9);
+  newGame('normale', 12345);
+  while (S.phase === 'play' && proj.length === 0) step(0.05);
+  restore();
+  assert.ok(proj.length > 0);
+  const saved = JSON.stringify(serialize());
+  restore = seedRandom(77);
+  run(20);
+  restore();
+  const a = JSON.stringify(serialize());
+  loadState(JSON.parse(saved));
+  restore = seedRandom(77);
+  run(20);
+  restore();
+  assert.ok(a === JSON.stringify(serialize()), 'stato diverso dopo 20 s dal caricamento');
+});
+
+test('loadState accetta un salvataggio senza proj (vecchio formato)', () => {
+  const restore = seedRandom(7);
+  try {
+    newGame('normale', 12345);
+    while (S.phase === 'play' && proj.length === 0) step(0.05);
+    const st = roundTrip();
+    delete st.proj;
+    assert.doesNotThrow(() => loadState(st));
+    assert.equal(proj.length, 0, 'senza proj nel salvataggio non restano proiettili della partita precedente');
+    assert.ok(!('proj' in S));
+    assert.doesNotThrow(() => run(5));
+    assert.ok(Array.isArray(serialize().proj));
   } finally { restore(); }
 });
 

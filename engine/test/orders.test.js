@@ -197,6 +197,58 @@ test('startResearch rispetta requisiti, costo e ricerche già in corso', () => {
   assert.equal(startResearch(P, lab2, 'twCN'), true);
 });
 
+test('startResearch rifiuta un laboratorio non valido senza cambiare gasolio e ricerche', () => {
+  newGame('normale', 12345);
+  S.res[P] = 600;
+  const hq = S.ents.find(e => e.type === 'hq' && e.owner === P);
+  const labE = builtLab(E);
+  const [x, y] = findSpot(P, 'lab', B0.x - 1, B0.y + 4);
+  const unfinished = placeStruct(P, 'lab', x, y);
+  assert.ok(unfinished && unfinished.built < 1);
+  S.res[P] = 600;
+  const dead = builtLab(P); dead.dead = true;
+  const busy = builtLab(P); busy.rs = { id: 'chM', t: 3, total: 40 };
+  const cases = [
+    ['laboratorio mancante (null)', null],
+    ['laboratorio mancante (undefined)', undefined],
+    ['laboratorio distrutto', dead],
+    ['edificio che non è un laboratorio', hq],
+    ['laboratorio di un altro giocatore', labE],
+    ['laboratorio non finito', unfinished],
+    ['laboratorio con una ricerca già in corso', busy],
+  ];
+  const snap = () => S.ents.map(e => (e.rs ? { ...e.rs } : e.rs));
+  for (const [why, lab] of cases) {
+    const res = [...S.res], rs = snap();
+    assert.equal(startResearch(P, lab, 'wCN'), false, why);
+    assert.deepEqual(S.res, res, `gasolio cambiato: ${why}`);
+    assert.deepEqual(snap(), rs, `ricerche cambiate: ${why}`);
+  }
+  assert.deepEqual(busy.rs, { id: 'chM', t: 3, total: 40 }, 'la ricerca in corso resta quella di prima');
+  assert.equal(researching(P, 'wCN'), false);
+  assert.equal(labE.rs ?? null, null);
+  assert.equal(S.res[P], 600);
+  // Il nemico non può usare il laboratorio del giocatore.
+  const ok = builtLab(P);
+  const resE = S.res[E];
+  assert.equal(startResearch(E, ok, 'wCN'), false);
+  assert.equal(S.res[E], resE);
+  assert.equal(ok.rs ?? null, null);
+  // Controprova: lo stesso ordine su un laboratorio valido del giocatore va a buon fine.
+  assert.equal(startResearch(P, ok, 'wCN'), true);
+  assert.equal(S.res[P], 600 - TECH_BY.wCN.cost);
+});
+
+test('startResearch: un laboratorio finito dopo la costruzione può ricercare', () => {
+  newGame('normale', 12345);
+  const [x, y] = findSpot(P, 'lab', B0.x - 1, B0.y + 4);
+  const lab = placeStruct(P, 'lab', x, y);
+  S.res[P] = 600;
+  assert.equal(startResearch(P, lab, 'wCN'), false);
+  lab.built = 1;
+  assert.equal(startResearch(P, lab, 'wCN'), true);
+});
+
 test('startResearch: il nemico ricerca più in fretta salendo di difficoltà', () => {
   for (const diff of Object.keys(DIFF)) {
     newGame(diff, 12345);

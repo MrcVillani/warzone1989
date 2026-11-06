@@ -78,6 +78,7 @@ export function researching(owner, id) { return S.ents.some(e => e.owner === own
 export function techAvail(owner, id) { const T = TECH_BY[id]; return !S.tech[owner][id] && !researching(owner, id) && T.req.every(r => S.tech[owner][r]); }
 export function startResearch(owner, lab, id) {
   const T = TECH_BY[id];
+  if (!lab || lab.dead || lab.type !== 'lab' || lab.owner !== owner || lab.built < 1 || lab.rs) return false;
   if (!techAvail(owner, id) || S.res[owner] < T.cost) return false;
   S.res[owner] -= T.cost;
   lab.rs = { id, t: 0, total: T.time * (owner === E ? DIFF[S.diff].rs : 1) };
