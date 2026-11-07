@@ -17,9 +17,47 @@ deseleziona. Su touch il tocco funziona già come ordine, ma i mezzi sono piccol
   pulsante «Deseleziona» (ora visibile anche con il mouse) o cliccando un proprio mezzo diverso.
 - Area di tocco dei mezzi più ampia (almeno 22 px di raggio su touch) e pulsante «Tutto l'esercito» che seleziona
   tutti i mezzi armati.
-- Resta il segno visivo dell'ordine sul punto cliccato. L'audio resta nel backlog.
+- Il segno visivo dell'ordine diventa animato (frecce che si stringono sul punto).
 
-Agenti: frontend (`client/input.js`, `client/ui.js`), tester. Nessun cambiamento al motore.
+### Suoni (richiesti dal proprietario all'approvazione del piano)
+
+Tutti **sintetizzati in tempo reale con Web Audio**: nessun file audio, nessun suono preso da altri giochi.
+
+- Armi, ognuna riconoscibile: raffica di mitragliatrice, colpo di cannone, sibilo e impatto dei razzi, tonfo e fischio
+  del mortaio.
+- Esplosioni di mezzi ed edifici, con coda lunga per quelli grandi.
+- Conferma degli ordini: breve segnale radio, diverso per «muovi», «attacca» e «costruisci».
+- Cantiere (colpi metallici), edificio pronto, mezzo pronto, ricerca completata, attacco in corso (allarme radio).
+- Clic dell'interfaccia e un fondo sonoro leggero (vento e statico radio).
+- Suoni posizionati: più forti e a destra o a sinistra secondo dove succedono rispetto alla visuale; limite ai suoni
+  contemporanei.
+- Pulsante **Suono** nella barra (acceso/spento) e volume, ricordati sul dispositivo. L'audio parte al primo tocco,
+  come chiedono browser e Android.
+
+### Animazioni
+
+- Esplosioni con lampo, onda d'urto, detriti e fumo; i mezzi distrutti lasciano un **relitto che brucia** per qualche
+  secondo; lieve **scossa dello schermo** per le esplosioni grandi.
+- Vampa di sparo diversa per ogni arma; scie dei razzi; ombra e parabola dei colpi di mortaio.
+- Mezzi ed edifici danneggiati fumano (sotto metà dei punti struttura) e bruciano (sotto un quarto).
+- **Tracce dei cingoli** e delle ruote sul terreno, che sbiadiscono; scia sull'acqua per gli hovercraft.
+- Cantiere che sale con impalcatura e scintille; edificio che «si posa» quando viene piazzato; mezzo nuovo che esce dalla
+  porta della fabbrica.
+- Anello di selezione che pulsa; avvisi e schede con transizioni brevi.
+- Con «riduci movimento» del sistema: niente scossa e animazioni ridotte. Prestazioni: 60 fotogrammi al secondo su
+  telefono simulato, con un limite alle particelle.
+
+### Contratto (fase A)
+
+Il motore aggiunge informazioni agli eventi, senza cambiare le regole:
+
+- `fx` di tipo `flash` porta anche `w` (chiave dell'arma: `MG`, `CN`, `RK`, `MO`; per le torrette quella usata) e
+  `owner`; `fx` di tipo `boom` porta `owner` e `kind` (`unit` o `struct`) quando nasce dalla distruzione di un'entità.
+- Eventi nuovi: `unit` `{owner, id, x, y}` quando una fabbrica o il comando consegnano un mezzo; `built` `{owner, id,
+  type}` quando un edificio è finito; `research` `{owner, id}` quando una ricerca è completata; `placed` `{owner, id,
+  type}` quando si piazza un cantiere.
+
+Agenti: backend (eventi, `engine/`), frontend (`client/`: comandi, `client/audio.js`, animazioni), tester.
 
 ## Fase B · Più unità e ricerca a livelli
 
