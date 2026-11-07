@@ -12,7 +12,14 @@ export const proj = [];
 
 /* ---------- eventi ----------
    Il motore non disegna e non conosce il DOM: comunica con il client tramite eventi.
-   toast {text, kind} · ping {x, y} · fx {k, ...} · world {} · fog {} · end {won} */
+   toast {text, kind} · ping {x, y} · fx {k, ...} · world {} · fog {} · end {won}
+   fx con k = 'flash': anche w (chiave dell'arma: MG, CN, RK, MO; per le torrette MG o CN) e owner (chi spara);
+   fx con k = 'boom': anche owner e kind: 'unit' o 'struct' per la distruzione di un'entità (owner = lato
+   dell'entità distrutta), 'shot' per l'esplosione di un proiettile (owner = lato del tiratore).
+   unit {owner, id, x, y}: una fabbrica o il comando consegnano un mezzo (anche un geniere).
+   built {owner, id, type}: un edificio è finito (non per quelli che nascono già pronti, come il comando iniziale).
+   research {owner, id}: una ricerca è completata (id della ricerca in TECH).
+   placed {owner, id, type}: un cantiere è stato piazzato (solo se il piazzamento riesce). */
 const listeners = new Set();
 export function onEvent(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 export function emit(type, data = {}) { for (const f of listeners) f(type, data); }

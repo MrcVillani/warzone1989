@@ -53,7 +53,11 @@ proiettili in volo, che `loadState` rimette nell'array `proj`.
 |---|---|---|
 | `world` | — | nuova mappa: il client ridisegna il terreno |
 | `fog` | — | visibilità aggiornata (ogni 0,2 s) |
-| `fx` | `{k, …}` con `k` tra `boom`, `scorch`, `flash`, `tracer`, `hit`, `trail`, `spark`, `spray`, `chimney` | effetti visivi |
+| `fx` | `{k, …}` con `k` tra `boom`, `scorch`, `flash`, `tracer`, `hit`, `trail`, `spark`, `spray`, `chimney`; `flash` porta `w` (arma: `MG`, `CN`, `RK`, `MO`) e `owner` (chi spara); `boom` porta `kind` (`unit`, `struct`: `owner` è il lato distrutto; `shot`: `owner` è il tiratore) | effetti visivi e suoni |
+| `unit` | `{owner, id, x, y}` | un mezzo (anche un geniere) esce da fabbrica o comando |
+| `built` | `{owner, id, type}` | un cantiere è finito (non per il comando iniziale) |
+| `placed` | `{owner, id, type}` | un cantiere è stato piazzato |
+| `research` | `{owner, id}` | una ricerca è completata |
 | `toast` | `{text, kind}` | avviso al giocatore (`kind`: vuoto, `warn`, `bad`) |
 | `ping` | `{x, y}` | segnale sulla minimappa |
 | `end` | `{won}` | fine partita |

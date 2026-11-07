@@ -55,6 +55,7 @@ function adjTile(s, u) {
 function completeStruct(s) {
   s.built = 1; S.stats.built[s.owner]++;
   const D = STRUCTS[s.type];
+  emit('built', { owner: s.owner, id: s.id, type: s.type });
   if (s.owner === P) emit('toast', { text: `${D.name} ${D.m ? 'pronto' : 'pronta'} nel settore ${gridRef(s.tx, s.ty)}.` });
 }
 function buildTick(u, dt) {
@@ -155,6 +156,7 @@ export function updStruct(s, dt) {
       const u = makeUnit(s.owner, q.d, x, y);
       u.ang = u.tang = Math.PI / 2;
       S.stats.made[s.owner]++;
+      emit('unit', { owner: s.owner, id: u.id, x, y });
       if (s.rally) cmdMove([u], s.rally[0], s.rally[1], s.owner === E); else cmdMove([u], x, y + TILE * 1.5, false);
     }
   }
@@ -162,6 +164,7 @@ export function updStruct(s, dt) {
     s.rs.t += dt;
     if (s.rs.t >= s.rs.total) {
       const id = s.rs.id; S.tech[s.owner][id] = true; s.rs = null;
+      emit('research', { owner: s.owner, id });
       if (s.owner === P) emit('toast', { text: `Ricerca completata: ${TECH_BY[id].name}.` });
     }
   }

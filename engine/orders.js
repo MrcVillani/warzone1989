@@ -53,7 +53,9 @@ export function placeStruct(owner, type, tx, ty) {
   if (D.req && !S.tech[owner][D.req]) return null;
   if (S.res[owner] < D.cost || !canPlace(owner, type, tx, ty)) return null;
   S.res[owner] -= D.cost;
-  return makeStruct(type, owner, tx, ty, false);
+  const s = makeStruct(type, owner, tx, ty, false);
+  emit('placed', { owner, id: s.id, type });
+  return s;
 }
 // Smonta un edificio fuori dal combattimento: libera le caselle, ferma i genieri che ci lavoravano e, se non era
 // finito, restituisce tutto il costo. Niente eventi, niente effetti, niente statistiche di perdite.
