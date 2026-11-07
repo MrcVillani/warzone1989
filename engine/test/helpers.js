@@ -51,3 +51,13 @@ export function findSpot(owner, type, cx, cy, margin = 0) {
 }
 
 export const playerBuilder = () => units(P, u => u.builder)[0];
+
+// Come run, ma i genieri del lato indicato restano inchiodati dove si trovano (alla prima volta che si vedono):
+// ricevono ordini, ma non si spostano mai. Serve per provare gli edifici incompiuti che non avanzano.
+export function runPinned(seconds, owner, pin = new Map(), dt = 0.05) {
+  const n = Math.round(seconds / dt);
+  const hold = () => { for (const u of S.ents) if (u.owner === owner && u.builder && !u.dead) { if (!pin.has(u.id)) pin.set(u.id, [u.x, u.y]); [u.x, u.y] = pin.get(u.id); } };
+  hold();
+  for (let i = 0; i < n && S.phase === 'play'; i++) { step(dt); hold(); }
+  return pin;
+}

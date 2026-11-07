@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Stessi valori dei token ink e amber di client/style.css -->
+    <color name="ink">#111412</color>
+    <color name="amber">#d39233</color>
+</resources>

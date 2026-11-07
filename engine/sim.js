@@ -1,7 +1,7 @@
 // Aggiornamento di mezzi ed edifici e passo di simulazione.
 import { TILE, MW, P, E, DIRT, WATER, STRUCTS, CHASSIS, WEAPONS, TECH_BY, DIFF, TOWER_MG, TOWER_CN, PUMP_RATE } from './data.js';
 import { S, terr, emit, ent, makeUnit, canSee, updateFog } from './world.js';
-import { passable, nearestFree, pathTo } from './path.js';
+import { passable, nearestFree, pathTo, reachMap, reachableAdj } from './path.js';
 import { setIdle, cmdMove } from './orders.js';
 import { edist, nearestEnemy, aimFire, updProj } from './combat.js';
 import { aiTick } from './ai.js';
@@ -41,10 +41,11 @@ function chase(u, t, dt) {
   if (!u.path || u.chaseT <= 0) { pathTo(u, t.x, t.y); u.chaseT = 1.2; }
   followPath(u, dt);
 }
+// Casella accanto all'edificio, raggiungibile dal mezzo, più vicina al mezzo (null se non ce n'è nessuna).
 function adjTile(s, u) {
+  const R = reachMap([[ftile(u.x), ftile(u.y)]], u.water);
   let best = null, bd = 1e18;
-  for (let y = s.ty - 1; y <= s.ty + s.h; y++) for (let x = s.tx - 1; x <= s.tx + s.w; x++) {
-    if (x >= s.tx && x < s.tx + s.w && y >= s.ty && y < s.ty + s.h) continue;
+  for (const [x, y] of reachableAdj(s.tx, s.ty, s.w, s.h, R)) {
     if (!passable(x, y, u.water)) continue;
     const d = ((x + 0.5) * TILE - u.x) ** 2 + ((y + 0.5) * TILE - u.y) ** 2;
     if (d < bd) { bd = d; best = [x, y]; }
@@ -54,6 +55,7 @@ function adjTile(s, u) {
 function completeStruct(s) {
   s.built = 1; S.stats.built[s.owner]++;
   const D = STRUCTS[s.type];
+  emit('built', { owner: s.owner, id: s.id, type: s.type });
   if (s.owner === P) emit('toast', { text: `${D.name} ${D.m ? 'pronto' : 'pronta'} nel settore ${gridRef(s.tx, s.ty)}.` });
 }
 function buildTick(u, dt) {
@@ -63,6 +65,7 @@ function buildTick(u, dt) {
     if (!u.path) {
       u.bfails = (u.bfails || 0) + 1;
       if (u.bfails > 5) { setIdle(u); return; }
+      // Nessuna casella accanto all'edificio è raggiungibile: il geniere rinuncia subito.
       const g = adjTile(s, u); if (!g) { setIdle(u); return; }
       pathTo(u, (g[0] + 0.5) * TILE, (g[1] + 0.5) * TILE);
     }
@@ -153,6 +156,7 @@ export function updStruct(s, dt) {
       const u = makeUnit(s.owner, q.d, x, y);
       u.ang = u.tang = Math.PI / 2;
       S.stats.made[s.owner]++;
+      emit('unit', { owner: s.owner, id: u.id, x, y });
       if (s.rally) cmdMove([u], s.rally[0], s.rally[1], s.owner === E); else cmdMove([u], x, y + TILE * 1.5, false);
     }
   }
@@ -160,6 +164,7 @@ export function updStruct(s, dt) {
     s.rs.t += dt;
     if (s.rs.t >= s.rs.total) {
       const id = s.rs.id; S.tech[s.owner][id] = true; s.rs = null;
+      emit('research', { owner: s.owner, id });
       if (s.owner === P) emit('toast', { text: `Ricerca completata: ${TECH_BY[id].name}.` });
     }
   }

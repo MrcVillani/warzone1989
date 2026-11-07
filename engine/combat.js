@@ -45,13 +45,13 @@ export function kill(e, by) {
   e.dead = true; idx.delete(e.id);
   if (e.kind === 'struct') {
     markOcc(e, 0);
-    emit('fx', { k: 'boom', x: e.x, y: e.y, size: 1.4 + e.w * 0.45 });
+    emit('fx', { k: 'boom', x: e.x, y: e.y, size: 1.4 + e.w * 0.45, owner: e.owner, kind: 'struct' });
     emit('fx', { k: 'scorch', x: e.x, y: e.y, r: e.w * TILE * 0.75 });
     const D = STRUCTS[e.type];
     if (e.owner === P) emit('toast', { text: `${D.name} ${D.m ? 'distrutto' : 'distrutta'}.`, kind: 'bad' });
     if (e.owner === E && e.type === 'hq') emit('toast', { text: 'Comando nemico distrutto.', kind: 'warn' });
   } else {
-    emit('fx', { k: 'boom', x: e.x, y: e.y, size: 0.9 });
+    emit('fx', { k: 'boom', x: e.x, y: e.y, size: 0.9, owner: e.owner, kind: 'unit' });
     emit('fx', { k: 'scorch', x: e.x, y: e.y, r: 13 });
   }
   if (by != null && by !== e.owner) S.stats.kills[by]++;
@@ -65,11 +65,11 @@ export function explodeAt(x, y, r, dmg, owner, size) {
     const d = edist({ x, y }, e); if (d > R) continue;
     damage(e, dmg * (1 - 0.5 * d / R), owner);
   }
-  emit('fx', { k: 'boom', x, y, size });
+  emit('fx', { k: 'boom', x, y, size, owner, kind: 'shot' });
 }
 export function fire(x, y, ang, t, w, owner, len) {
   const mx = x + Math.cos(ang) * len, my = y + Math.sin(ang) * len;
-  emit('fx', { k: 'flash', x: mx, y: my, s: w.proj === 'tracer' ? 3 : 6 });
+  emit('fx', { k: 'flash', x: mx, y: my, s: w.proj === 'tracer' ? 3 : 6, w: w.key, owner });
   if (w.proj === 'tracer') {
     emit('fx', { k: 'tracer', x1: mx, y1: my, x2: t.x + (Math.random() - 0.5) * 10, y2: t.y + (Math.random() - 0.5) * 10 });
     damage(t, w.dmg, owner);

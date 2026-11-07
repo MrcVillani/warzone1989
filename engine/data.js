@@ -25,6 +25,8 @@ export const WEAPONS = {
   RK: { name: 'Razziera', short: 'Razzi', dmg: 30, rof: 2.2, range: 6.5, splash: 0.9, proj: 'rocket', speed: 330, cost: 65, req: 'wRK' },
   MO: { name: 'Mortaio 81 mm', short: 'Mortaio', dmg: 48, rof: 3.2, range: 9, minRange: 2.5, splash: 1.3, proj: 'mortar', cost: 80, req: 'wMO' },
 };
+// key: chiave dell'arma, così chi riceve l'oggetto (colpi, eventi) sa quale arma è; le torrette la ereditano.
+for (const [k, w] of Object.entries(WEAPONS)) w.key = k;
 export const TOWER_MG = Object.assign({}, WEAPONS.MG, { range: 5.5, dmg: 8 });
 export const TOWER_CN = Object.assign({}, WEAPONS.CN, { range: 6.2, dmg: 42 });
 
@@ -62,4 +64,6 @@ export const DIFF = {
   normale: { label: 'Veterano', inc: 1.0, first: 240, gap: 105, w0: 4, wmax: 14, rs: 1.0 },
   difficile: { label: 'Comandante', inc: 1.3, first: 170, gap: 85, w0: 5, wmax: 20, rs: 0.8 },
 };
+// Secondi senza progressi (con genieri assegnati) dopo cui l'IA smonta un suo edificio incompiuto.
+export const AI_STALL = 45;
 export const AI_TECH = ['wCN', 'prHT', 'chM', 'pump2', 'twCN', 'prT', 'wRK', 'arm', 'chH', 'stRP', 'wMO'];

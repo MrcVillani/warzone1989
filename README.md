@@ -13,6 +13,15 @@ npm run build
 
 Poi apri `dist/index.html` nel browser. Funziona con mouse e tastiera e con il touch del telefono.
 
+## Android
+
+```bash
+bash scripts/android-sdk.sh   # una volta: installa l'SDK Android in ~/android-sdk
+npm run android               # produce dist/warzone1989.apk
+```
+
+L'APK si installa a mano sul telefono (Android 7.0 o successivo), consentendo l'installazione da origini sconosciute.
+
 ## Sviluppo
 
 | Comando | Cosa fa |
@@ -20,6 +29,7 @@ Poi apri `dist/index.html` nel browser. Funziona con mouse e tastiera e con il t
 | `npm run build` | crea `dist/index.html` e `dist/artifact.html` |
 | `npm test` | test del motore in Node |
 | `npm run e2e` | build e prova nel browser (serve Playwright con Chromium) |
+| `npm run android` | crea l'APK Android in `dist/warzone1989.apk` |
 | `npm run check` | tutti i test |
 
 Il codice è diviso tra il motore (`engine/`, regole di gioco senza DOM) e il client (`client/`, disegno e
