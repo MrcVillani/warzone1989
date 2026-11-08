@@ -86,11 +86,13 @@ proiettili in volo, che `loadState` rimette nell'array `proj`.
 | `style.css` | stile e token di colore |
 | `state.js` | stato del solo client: selezione, camera, scheda attiva, effetti |
 | `render.js` | terreno, edifici, mezzi, effetti, nebbia, minimappa |
-| `input.js` | selezione, ordini, scorciatoie, touch e zoom |
+| `input.js` | selezione, ordini, scorciatoie; su touch un dito scorre la mappa con inerzia, due dita zoomano, tocco con aggancio, doppio tocco, tocco lungo con riquadro; squadre 1–4 condivise con Ctrl+1–9 |
 | `ui.js` | pannello (Costruisci, Produzione, Ricerca, Progetta), avvisi, barra |
 | `screens.js` | menu principale (Campagna, Schermaglia), elenco missioni, briefing, indicatore dell'obiettivo, rapporti di fine missione e di schermaglia, schermata finale, conferma d'uscita |
 | `campaign.js` | salvataggio della campagna sul dispositivo (`localStorage`, chiave `wz.campagna`) |
 | `audio.js` | suoni sintetizzati con Web Audio, posizionati rispetto alla visuale, con limite di voci; volume e acceso/spento salvati sul dispositivo |
+| `music.js` | colonna sonora originale generata in tempo reale: strati calma, tensione e battaglia sullo stesso orologio e sulla stessa armonia, con dissolvenze guidate dall'intensità dei combattimenti; temi del menu, vittoria, sconfitta e cambio di fase; volume e acceso/spento salvati sul dispositivo |
+| `alerts.js` | posizione degli avvisi toccabili, pulsante «Allarme» (ultimi scontri), frecce ai bordi per gli scontri fuori visuale |
 | `quality.js` | qualità adattiva degli effetti (alta, media, bassa): misura il tempo per fotogramma e regola particelle, tracce e risoluzione della tela; scelta «Effetti» salvata sul dispositivo |
 | `main.js` | collega eventi e moduli, ciclo di gioco, aggancio di test `window.__wz` (anche `fxq()` e `setFx()` per la qualità) |
 

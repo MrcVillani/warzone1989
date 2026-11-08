@@ -9,6 +9,7 @@ import { startGame, resetClient, closeOverlay, showHelp, closeHelp, toast, fmtTi
 import { drawMissionMap } from './render.js';
 import { getCampaign, setCampaign, resetCampaign, campaignDiff, setCampaignDiff } from './campaign.js';
 import { uiSfx } from './audio.js';
+import { musicSting } from './music.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -61,7 +62,7 @@ export function showStart() {
         <div class="mact"><button class="primary" id="ovStart">Inizia la schermaglia</button><button class="btn" id="ovMap">Cambia carta</button></div>
       </section>
     </div>
-    <div class="mfoot"><button class="btn" id="ovHelp">Comandi</button><p class="hint">Un clic su un tuo mezzo lo seleziona, un clic sulla mappa gli dà l’ordine. Il suono parte al primo tocco: lo spegni con «Suono» nella barra.</p></div>
+    <div class="mfoot"><button class="btn" id="ovHelp">Comandi</button><p class="hint">Un clic su un tuo mezzo lo seleziona, un clic sulla mappa gli dà l’ordine. Suono e musica partono al primo tocco: «Suono» nella barra spegne tutto, in «Comandi» regoli la musica.</p></div>
   </div>`);
   bindChips(o, 'diff', d => { ui.diff = d; });
   on('ovMap', () => { startGame(ui.diff, randomSeed()); showStart(); });
@@ -290,6 +291,7 @@ export function refreshObjective(ev) {
     const lostHold = o.type === 'hold' && o.since == null && !o.done;
     pulse(lostHold ? 'warn' : 'pulse');
     if (!lostHold) uiSfx(o.done ? 'objDone' : 'objStep');
+    if (!lostHold && !o.done) musicSting('phase');
   } else if (ev && lastProg != null && prog > lastProg && (COUNTED[o.type] || o.stage === 2)) pulse('tick');
   lastPhase = ph; lastProg = prog;
   stage.style.setProperty('--objh', box.offsetHeight + 'px');

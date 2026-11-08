@@ -96,6 +96,7 @@ button { font: inherit; color: inherit; }
 }
 #view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
 #view.pan { cursor: grab; }
+#view, #mini, #touchbar .btn, .edgearrow, .toast.go { -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
 /* Ordini rapidi sopra la mappa: una riga sola, solo i pulsanti prendono i tocchi (lo spazio fra loro è mappa).
    Se non ci stanno scorre la sola barra in orizzontale, mai su due righe. */
 #touchbar {
@@ -105,6 +106,10 @@ button { font: inherit; color: inherit; }
   pointer-events: none;
 }
 #touchbar::-webkit-scrollbar { display: none; }
+/* Barra più larga dello spazio: il bordo da cui continua sfuma, per far capire che si può scorrere. */
+#touchbar.more-r { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent); }
+#touchbar.more-l { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 26px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 26px), transparent); }
+#touchbar.more-l.more-r { -webkit-mask-image: linear-gradient(to right, transparent, #000 26px, #000 calc(100% - 26px), transparent); mask-image: linear-gradient(to right, transparent, #000 26px, #000 calc(100% - 26px), transparent); }
 #touchbar .btn {
   pointer-events: auto; flex: 0 0 auto;
   display: inline-flex; align-items: center; justify-content: center; gap: 5px;
@@ -115,8 +120,44 @@ button { font: inherit; color: inherit; }
 #touchbar .btn.on { background: var(--amber); border-color: var(--amber); }
 #touchbar .ic { width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 #touchbar .ic .fill { fill: currentColor; }
-.touch-only, #touchbar .touch-only { display: none; }
-@media (pointer: coarse) { #touchbar .touch-only { display: inline-flex; } }
+#touchbar .btn { -webkit-touch-callout: none; touch-action: manipulation; }
+/* Contatore della selezione: solo lettura, i tocchi passano alla mappa. */
+#touchbar .tbsel {
+  flex: 0 0 auto; margin-left: 4px; min-width: 34px; padding: 3px 6px; box-sizing: border-box;
+  display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; line-height: 1;
+  background: var(--glass); border: 1px solid var(--glass-rule); border-radius: 2px;
+}
+#touchbar .tbsel b { font-family: var(--f-mono); font-size: 14px; font-weight: 500; color: var(--amber-hi); font-variant-numeric: tabular-nums; }
+#touchbar .tbsel small { font-size: 10px; color: var(--dim); }
+#touchbar .tbsel.zero b { color: var(--dim); }
+/* Squadre 1–4: numero grande, sotto quanti mezzi ha (– se vuota). */
+#touchbar .btn.sq { flex-direction: column; gap: 2px; min-width: 34px; padding: 3px 6px; }
+#touchbar .sq b { font-family: var(--f-display); font-size: 16px; font-weight: 400; line-height: 1; }
+#touchbar .sq small { font-family: var(--f-mono); font-size: 10px; line-height: 1; color: var(--dim); }
+#touchbar .sq.has { border-color: rgba(240, 194, 122, 0.5); }
+#touchbar .sq.has small { color: var(--amber-hi); }
+/* Allarme: si accende per qualche secondo dopo uno scontro; il numero dice quanti scontri recenti ci sono. */
+#touchbar .alarm { position: relative; }
+#touchbar .alarm .bdg {
+  position: absolute; top: 2px; right: 2px; min-width: 14px; height: 14px; padding: 0 3px; box-sizing: border-box;
+  border-radius: 7px; background: var(--brick); color: var(--paper);
+  font: 500 10px/14px var(--f-mono); font-style: normal; text-align: center;
+}
+#touchbar .alarm .bdg:empty { display: none; }
+#touchbar .alarm.hot { border-color: var(--brick); color: var(--brick-hi); animation: alarmp 1.2s ease-out infinite; }
+@keyframes alarmp { 0% { box-shadow: 0 0 0 0 rgba(224, 86, 74, 0.6); } 100% { box-shadow: 0 0 0 8px rgba(224, 86, 74, 0); } }
+/* Frecce ai bordi: scontri dei tuoi mezzi o edifici fuori visuale; toccandole si va lì. */
+#arrows { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.edgearrow {
+  position: absolute; left: 0; top: 0; width: 44px; height: 44px; margin: -22px 0 0 -22px; padding: 0;
+  display: flex; align-items: center; justify-content: center; pointer-events: auto; cursor: pointer;
+  background: rgba(17, 20, 18, 0.8); border: 1.5px solid var(--brick); border-radius: 50%; color: var(--brick-hi);
+  transition: opacity 0.3s; -webkit-touch-callout: none; touch-action: manipulation;
+  animation: alarmp 1.2s ease-out infinite;
+}
+.edgearrow:hover { background: rgba(60, 24, 20, 0.9); }
+.edgearrow:focus-visible { outline: 2px solid var(--amber-hi); outline-offset: 2px; }
+.edgearrow svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; transform: rotate(var(--rot, 0rad)); }
 #toasts {
   position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
   display: flex; flex-direction: column; gap: 6px; align-items: center;
@@ -128,6 +169,14 @@ button { font: inherit; color: inherit; }
   animation: tin 0.18s ease-out;
 }
 .toast.warn { border-left-color: var(--warn); }
+/* Avviso con una posizione: si tocca per andare lì. */
+.toast.go { pointer-events: auto; cursor: pointer; display: flex; align-items: center; gap: 10px; }
+.toast.go::after {
+  content: 'Vai ›'; flex: none; margin-left: auto; padding-left: 9px; border-left: 1px solid var(--rule);
+  font-size: 11.5px; letter-spacing: 0.04em; color: var(--amber-hi); white-space: nowrap;
+}
+.toast.go:hover { border-color: var(--dim); }
+.toast.go:focus-visible { outline: 2px solid var(--amber-hi); outline-offset: 1px; }
 .toast.bad { border-left-color: var(--brick); }
 @keyframes tin { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 /* Obiettivo della missione: riquadro compatto in alto a sinistra sulla mappa; i tocchi passano alla mappa. */
@@ -294,6 +343,8 @@ button { font: inherit; color: inherit; }
 .card > .actions { position: sticky; bottom: 0; z-index: 1; background: var(--hull); margin: -6px 0; padding: 6px 0; }
 .actions .primary { font-size: 15px; padding: 10px 16px; }
 .controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 18px; margin: 0; font-size: 12.5px; border-top: 1px solid var(--rule); padding-top: 12px; }
+.sec.ctlh { border-top: 1px solid var(--rule); padding-top: 12px; margin: 0 0 -6px; }
+.ctlh + .controls { border-top: 0; padding-top: 0; }
 .controls div { display: flex; gap: 8px; min-width: 0; }
 .controls dt { font-family: var(--f-mono); font-size: 11.5px; color: var(--amber-hi); flex: none; min-width: 92px; }
 .controls dd { margin: 0; color: var(--dim); min-width: 0; }
@@ -445,10 +496,18 @@ button { font: inherit; color: inherit; }
   .ro .k, .mm .cap, .sec, .diff .lbl, .tag { font-size: 11px; }
   .tabs button { font-size: 12.5px; }
   #touchbar .btn { min-width: 48px; padding: 4px 9px; }
+  .toast.go { min-height: 32px; box-sizing: border-box; }
 }
 /* Touch e schermi stretti: icona sopra l'etichetta, pulsanti stretti; i cinque stanno su una riga anche in verticale. */
 @media (pointer: coarse), (max-width: 560px) {
   #touchbar .btn { flex-direction: column; gap: 3px; padding: 4px 6px; min-width: 52px; font-size: 11px; letter-spacing: 0.01em; }
   #touchbar .ic { width: 16px; height: 16px; }
 }
-@media (prefers-reduced-motion: reduce) { .toast, #objective.pulse, #objective.warn, #objective.tick .ot { animation: none; } .tabs button, .tierh .chev, #objective .obar i { transition: none; } }
+/* Telefono (in verticale e in orizzontale): pulsanti più stretti, così ne stanno di più prima di dover scorrere la barra. */
+@media (max-width: 480px), (max-height: 520px) and (orientation: landscape) {
+  #touchbar { gap: 3px; }
+  #touchbar .btn { min-width: 44px; padding: 4px 3px; font-size: 10.5px; letter-spacing: 0; }
+  #touchbar .btn.sq { min-width: 31px; padding: 3px 4px; }
+  #touchbar .tbsel { min-width: 30px; padding: 3px 4px; margin-left: 3px; }
+}
+@media (prefers-reduced-motion: reduce) { .toast, #objective.pulse, #objective.warn, #objective.tick .ot, #touchbar .alarm.hot, .edgearrow { animation: none; } .tabs button, .tierh .chev, #objective .obar i { transition: none; } }

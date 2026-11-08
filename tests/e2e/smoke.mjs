@@ -8,6 +8,8 @@ import path from 'node:path';
 import { runCommandChecks } from './comandi.mjs';
 import { runPhaseBChecks } from './faseb.mjs';
 import { runCampaignChecks } from './campagna.mjs';
+import { runPhoneChecks } from './telefono.mjs';
+import { runMusicChecks } from './musica.mjs';
 
 // Playwright si carica con require: così vale anche l'installazione globale del sistema.
 const { chromium, devices } = createRequire(import.meta.url)('playwright');
@@ -97,6 +99,10 @@ await runCommandChecks({ browser, url, check, profiles: profiles.filter(([n]) =>
 await runPhaseBChecks({ browser, url, check, todo, profiles: profiles.filter(([n]) => !only || n === only) });
 // Campagna: menu, briefing, obiettivo, Ricerca con il livello massimo, rapporti, salvataggio (tests/e2e/campagna.mjs).
 await runCampaignChecks({ browser, url, check, profiles: profiles.filter(([n]) => !only || n === only) });
+// Gesti su telefono con tocchi veri (CDP) e computer invariato: piano 04 (tests/e2e/telefono.mjs).
+await runPhoneChecks({ browser, url, check, profiles: profiles.filter(([n]) => !only || n === only) });
+// Colonna sonora: primo gesto, menu, calma e battaglia, nebbia, comandi salvati, «Suono» spento (tests/e2e/musica.mjs).
+await runMusicChecks({ browser, url, check, profiles: profiles.filter(([n]) => !only || n === only) });
 await browser.close();
 if (known.length) console.log(`\n${known.length} problemi noti (TODO), non bloccanti:\n- ${known.join('\n- ')}`);
 if (failures.length) { console.error(`\n${failures.length} controlli falliti.`); process.exit(1); }

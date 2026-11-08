@@ -9,19 +9,32 @@ import { selEnts, selUnits, setSel } from './selection.js';
 import { centerOn, screenToWorld, drawVehicle, vehicleExtent, hpColor } from './render.js';
 import { soundOn, setSound, getVolume, setVolume, onAudioChange, uiSfx } from './audio.js';
 import { fxq, setPref } from './quality.js';
-import { selectArmy } from './input.js';
+import { musicOn, setMusic, getMusicVolume, setMusicVolume, onMusicChange } from './music.js';
+import { selectArmy, saveSquad, recallSquad, squadIds, LONG_MS, DBL_MS, TAP_MOVE, stopInertia } from './input.js';
+import { nextAlarm, alarmList, initAlerts, resetAlerts } from './alerts.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const coarse = () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 const fmtN = n => Math.floor(n).toLocaleString('it-IT');
 const dec = n => String(n).replace('.', ',');
 export const fmtTime = s => { s = Math.floor(s); return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); };
 
 export function toast(text, kind) {
-  const box = $('toasts'); if (!box) return;
+  const box = $('toasts'); if (!box) return null;
   const d = document.createElement('div'); d.className = 'toast' + (kind ? ' ' + kind : ''); d.textContent = text;
   box.appendChild(d); while (box.children.length > 4) box.firstChild.remove();
   setTimeout(() => d.remove(), 4200);
+  return d;
+}
+// Avviso toccabile: un tocco (o clic, o Invio) porta la visuale sul punto dell'avviso.
+export function toastGo(d, x, y) {
+  d.dataset.x = Math.round(x); d.dataset.y = Math.round(y);
+  if (d.classList.contains('go')) return;
+  d.classList.add('go'); d.setAttribute('role', 'button'); d.tabIndex = 0; d.title = 'Tocca per andare lì';
+  const go = () => { centerOn(+d.dataset.x, +d.dataset.y); stopInertia(); d.remove(); };
+  d.addEventListener('click', go);
+  d.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
 }
 
 /* ---------- partita ---------- */
@@ -34,6 +47,7 @@ export function resetClient() {
   ui.sel = []; ui.groups = {}; ui.placing = null; ui.amove = false; ui.producer = 0; ui.tab = 'build';
   ui.draft = { c: 'L', p: 'W', w: 'MG' }; ui.key = ''; ui.resFold = {};
   fxs.parts = []; fxs.fx = []; fxs.pings = []; fxs.boxSel = null;
+  resetAlerts(); stopInertia();
   cam.z = view.cw < 520 ? 0.8 : 1;
   centerOnBase();
 }
@@ -72,7 +86,7 @@ function panelKey() {
 }
 function htmlSel() {
   const es = selEnts();
-  if (!es.length) return `<div class="selhead"><span class="nm">Nessuna selezione</span></div><p class="hint small" style="margin-top:6px">Clicca o tocca un tuo mezzo o edificio, oppure trascina un riquadro. Poi clicca sulla mappa per dare l’ordine.</p>`;
+  if (!es.length) return `<div class="selhead"><span class="nm">Nessuna selezione</span></div><p class="hint small" style="margin-top:6px">${coarse() ? 'Tocca un tuo mezzo o edificio (doppio tocco: tutti quelli uguali; tieni premuto e trascina: riquadro). Poi tocca la mappa per dare l’ordine; con un dito scorri la mappa.' : 'Clicca un tuo mezzo o edificio, oppure trascina un riquadro. Poi clicca sulla mappa per dare l’ordine.'}</p>`;
   if (es.length === 1) {
     const e = es[0], own = e.owner === P;
     const tag = `<span class="tag ${own ? 'p' : 'e'}">${FACTION[e.owner]}</span>`;
@@ -99,7 +113,8 @@ function htmlSel() {
   }
   const groups = new Map();
   for (const e of es) { const k = e.kind === 'struct' ? STRUCTS[e.type].name : e.builder ? 'Geniere' : designName(e.d); groups.set(k, (groups.get(k) || 0) + 1); }
-  return `<div class="selhead"><span class="nm">${es.length} selezionati</span><span class="tag p">${FACTION[P]}</span></div><div class="hpbar"><i data-hp="all"></i></div><ul class="comp">${[...groups].map(([k, n]) => `<li><span>${esc(k)}</span><b>× ${n}</b></li>`).join('')}</ul>`;
+  const tip = coarse() && es.some(e => e.kind === 'unit') ? '<p class="hint small" style="margin-top:6px">Tieni premuto 1–4 sulla mappa per salvarli in una squadra.</p>' : '';
+  return `<div class="selhead"><span class="nm">${es.length} selezionati</span><span class="tag p">${FACTION[P]}</span></div><div class="hpbar"><i data-hp="all"></i></div><ul class="comp">${[...groups].map(([k, n]) => `<li><span>${esc(k)}</span><b>× ${n}</b></li>`).join('')}</ul>${tip}`;
 }
 function htmlBuild() {
   const has = selUnits().some(u => u.builder);
@@ -238,6 +253,63 @@ export function updateBar() {
   $('roUnits').textContent = S.ents.filter(e => !e.dead && e.owner === P && e.kind === 'unit').length;
   $('roTime').textContent = fmtTime(S.time);
   const c = screenToWorld(view.cw / 2, view.ch / 2); $('mmRef').textContent = 'Settore ' + gridRef(ftile(c.x), ftile(c.y));
+  for (const b of document.querySelectorAll('[data-squad]')) {
+    const k = b.dataset.squad, n = squadIds(k).length, el = b.querySelector('small');
+    const txt = n ? String(n) : '–'; if (el.textContent !== txt) el.textContent = txt;
+    b.classList.toggle('has', n > 0);
+    b.setAttribute('aria-label', `Squadra ${k}: ${n ? n + (n === 1 ? ' mezzo' : ' mezzi') : 'vuota'}`);
+  }
+  const al = alarmList(), ab = $('btnAlarm');
+  if (ab) {
+    const fresh = al.length && S.time - al[0].t < 6;
+    ab.classList.toggle('hot', !!fresh);
+    const bd = ab.querySelector('.bdg'); const txt = al.length ? String(al.length) : '';
+    if (bd.textContent !== txt) bd.textContent = txt;
+  }
+}
+// Contatore dei mezzi selezionati sulla barra della mappa (a ogni fotogramma: costa poco e risponde subito).
+let selShown = -1;
+export function updateSelCount() {
+  if (!S) return;
+  const n = selUnits().length; if (n === selShown) return;
+  selShown = n; const el = $('selCount'); if (!el) return;
+  el.querySelector('b').textContent = n; el.classList.toggle('zero', !n);
+  el.setAttribute('aria-label', n === 1 ? '1 mezzo selezionato' : `${n} mezzi selezionati`);
+}
+// Sfumatura sul lato da cui la barra degli ordini continua (quando non ci sta tutta).
+function syncBarFade() {
+  const tb = $('touchbar'); if (!tb) return;
+  const l = tb.scrollLeft > 2, r = tb.scrollLeft + tb.clientWidth < tb.scrollWidth - 2;
+  tb.classList.toggle('more-l', l); tb.classList.toggle('more-r', r);
+}
+// Pulsanti delle squadre: tocco (o clic) = selezionala; doppio tocco = selezionala e porta lì la visuale;
+// tocco lungo = salva la selezione. Un trascinamento (per scorrere la barra) annulla.
+function initSquads() {
+  let lastK = null, lastT = 0;
+  for (const b of document.querySelectorAll('[data-squad]')) {
+    const k = b.dataset.squad; let p = null;
+    const cancel = () => { if (p) clearTimeout(p.timer); p = null; };
+    b.addEventListener('contextmenu', e => e.preventDefault());
+    b.addEventListener('pointerdown', e => {
+      if (!S || ui.overlay || (e.pointerType === 'mouse' && e.button !== 0)) return;
+      cancel();
+      const q = { x: e.clientX, y: e.clientY, long: false };
+      q.timer = setTimeout(() => { if (p !== q) return; q.long = true; saveSquad(k); updateBar(); }, LONG_MS);
+      p = q;
+    });
+    b.addEventListener('pointermove', e => { if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) > TAP_MOVE) cancel(); });
+    b.addEventListener('pointerup', () => {
+      if (!p) return;
+      const q = p; cancel(); if (q.long) return;
+      const now = performance.now(), dbl = lastK === k && now - lastT < DBL_MS;
+      lastK = dbl ? null : k; lastT = now;
+      recallSquad(k, dbl); ui.key = ''; renderPanel(true); updateSelCount();
+    });
+    b.addEventListener('pointercancel', cancel);
+    b.addEventListener('pointerleave', cancel);
+    // da tastiera (Invio o spazio sul pulsante): seleziona
+    b.addEventListener('click', e => { if (e.detail === 0 && S) { recallSquad(k, false); updateSelCount(); } });
+  }
 }
 export function initUI(cv) {
   $('panel').addEventListener('click', e => {
@@ -263,13 +335,23 @@ export function initUI(cv) {
   $('btnPause').addEventListener('click', togglePause);
   $('btnSpeed').addEventListener('click', () => { ui.speed = ui.speed === 1 ? 2 : ui.speed === 2 ? 3 : 1; $('btnSpeed').textContent = ui.speed + '×'; });
   $('btnHelp').addEventListener('click', () => showHelp());
-  $('btnMode').addEventListener('click', () => { ui.mode = ui.mode === 'pan' ? 'select' : 'pan'; $('btnMode').classList.toggle('on', ui.mode === 'pan'); cv.classList.toggle('pan', ui.mode === 'pan'); });
+  $('btnAlarm').addEventListener('click', () => {
+    if (!S) return;
+    const r = nextAlarm(); stopInertia();
+    if (!r) toast('Nessuno scontro negli ultimi 60 secondi.');
+    else $('btnAlarm').title = `Scontro ${r.n} di ${r.of} (${r.age} s fa): tocca di nuovo per il precedente`;
+  });
+  initSquads();
+  initAlerts(toastGo);
+  $('touchbar').addEventListener('scroll', syncBarFade, { passive: true });
+  new ResizeObserver(syncBarFade).observe($('touchbar')); syncBarFade();
   $('btnAmove').addEventListener('click', () => { if (selUnits().some(u => !u.builder)) ui.amove = !ui.amove; else toast('Seleziona dei mezzi armati.', 'warn'); });
   $('btnStop').addEventListener('click', () => cmdStop(selUnits()));
   $('btnDesel').addEventListener('click', () => { setSel([]); ui.placing = null; ui.amove = false; });
   $('btnArmy').addEventListener('click', () => { if (S) selectArmy(); });
   $('btnSound').addEventListener('click', () => setSound(!soundOn()));
   onAudioChange(syncSound); syncSound();
+  onAudioChange(syncMusic); onMusicChange(syncMusic);
   // clic dell'interfaccia su ogni pulsante
   document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('button'); if (b && !b.disabled) uiSfx('click'); });
 }
@@ -282,6 +364,14 @@ function syncSound() {
   const vv = $('ovVolV'); if (vv) vv.textContent = Math.round(getVolume() * 100) + '%';
 }
 
+// Musica: accesa o spenta e volume proprio, sotto il volume principale (con il suono spento non si sente).
+function syncMusic() {
+  const on = musicOn(), sw = $('ovMusic'); if (!sw) return;
+  sw.textContent = on ? 'Accesa' : 'Spenta'; sw.classList.toggle('on', on); sw.setAttribute('aria-pressed', on ? 'true' : 'false');
+  const v = $('ovMVol'); if (v) { v.value = Math.round(getMusicVolume() * 100); v.disabled = !on || !soundOn(); }
+  const vv = $('ovMVolV'); if (vv) vv.textContent = Math.round(getMusicVolume() * 100) + '%';
+}
+
 // Qualità degli effetti: automatica (si adatta al dispositivo), sempre alta o sempre bassa.
 const FX_OPTS = [['auto', 'Automatici'], ['alta', 'Alti'], ['bassa', 'Bassi']];
 function syncFx() {
@@ -291,7 +381,7 @@ function syncFx() {
 
 /* ---------- aiuto e schermate ----------
    Menu, campagna, briefing e rapporti sono in screens.js; qui i comandi e la chiusura delle schermate. */
-export const CONTROLS = `<dl class="controls">
+export const CONTROLS = `<p class="sec ctlh">Mouse e tastiera</p><dl class="controls">
   <div><dt>Clic su un tuo mezzo</dt><dd>lo seleziona (anche un edificio); trascina per un riquadro</dd></div>
   <div><dt>Clic sulla mappa</dt><dd>con mezzi selezionati: muovi, attacca, costruisci, ripara (anche clic destro)</dd></div>
   <div><dt>Fabbrica + clic</dt><dd>con una fabbrica o il comando selezionati: punto di raduno</dd></div>
@@ -300,14 +390,24 @@ export const CONTROLS = `<dl class="controls">
   <div><dt>Doppio clic</dt><dd>tutti i mezzi uguali sullo schermo</dd></div>
   <div><dt>A, poi clic</dt><dd>attacca-muovi verso un punto</dd></div>
   <div><dt>S · H · P</dt><dd>ferma · torna al comando · pausa</dd></div>
-  <div><dt>Ctrl+1–9 · 1–9</dt><dd>crea e richiama un gruppo</dd></div>
+  <div><dt>Ctrl+1–9 · 1–9</dt><dd>salva e richiama una squadra (le 1–4 anche dai pulsanti sulla mappa)</dd></div>
   <div><dt>Frecce · bordi</dt><dd>scorri la mappa (anche spazio o rotella premuta + trascina)</dd></div>
   <div><dt>Rotella</dt><dd>zoom</dd></div>
-  <div><dt>Touch</dt><dd>tocca un tuo mezzo, poi tocca la mappa per dargli un ordine. Il pulsante «Mappa» fa scorrere, due dita per lo zoom.</dd></div>
+  <div><dt>Minimappa</dt><dd>clic: visuale lì · clic destro: manda lì i mezzi selezionati</dd></div>
+</dl>
+<p class="sec ctlh">Touch</p><dl class="controls">
+  <div><dt>Un dito</dt><dd>scorre la mappa, che continua a scivolare e rallenta; un tocco la ferma</dd></div>
+  <div><dt>Due dita</dt><dd>zoom</dd></div>
+  <div><dt>Tocco</dt><dd>su un tuo mezzo (anche un po’ fuori) o edificio lo seleziona; sulla mappa dà l’ordine ai mezzi selezionati</dd></div>
+  <div><dt>Doppio tocco</dt><dd>su un mezzo: tutti quelli dello stesso tipo sullo schermo</dd></div>
+  <div><dt>Tieni premuto</dt><dd>e trascina: riquadro di selezione (vicino ai bordi la mappa scorre). Senza trascinare: su un mezzo tutti quelli uguali; sul terreno, con mezzi selezionati, attacca-muovi lì</dd></div>
+  <div><dt>Squadre 1–4</dt><dd>tieni premuto: salva la selezione · tocco: selezionala · doppio tocco: vai lì</dd></div>
+  <div><dt>Avvisi · «Allarme»</dt><dd>tocca un avviso per andare lì; «Allarme» porta all’ultimo scontro, toccato di nuovo ai precedenti; le frecce ai bordi indicano scontri fuori visuale</dd></div>
+  <div><dt>Minimappa</dt><dd>tocco: visuale lì · tieni premuto con mezzi selezionati: mandali lì</dd></div>
 </dl>`;
 export const ov = () => $('overlay');
 export const randomSeed = () => (Math.random() * 1e9) | 0;
-// Manuale da campo con le impostazioni di suono ed effetti. back: cosa fare alla chiusura (dal menu si torna al menu;
+// Manuale da campo con le impostazioni di suono, musica ed effetti. back: cosa fare alla chiusura (dal menu si torna al menu;
 // in partita si torna alla partita).
 let helpBack = null;
 export function showHelp(back) {
@@ -320,11 +420,16 @@ export function showHelp(back) {
   <p class="brief">Le pompe sui giacimenti producono il gasolio. Il laboratorio sblocca telai, propulsioni e armi; nella scheda Progetta li combini in un nuovo mezzo e la fabbrica lo produce. ${back ? 'In schermaglia vinci quando il nemico non ha più comando, fabbriche né genieri; in campagna ogni missione ha il suo obiettivo.' : goal}</p>
   <div class="audioset"><span class="lbl">Suono</span><button class="btn" id="ovSound" aria-pressed="true">Acceso</button>
     <label for="ovVol">Volume</label><input type="range" id="ovVol" min="0" max="100" step="5"><output id="ovVolV">60%</output></div>
+  <div class="audioset"><span class="lbl">Musica</span><button class="btn" id="ovMusic" aria-pressed="true">Accesa</button>
+    <label for="ovMVol">Volume</label><input type="range" id="ovMVol" min="0" max="100" step="5" aria-label="Volume della musica"><output id="ovMVolV">50%</output></div>
   <div class="audioset" role="group" aria-label="Qualità degli effetti"><span class="lbl">Effetti</span>${FX_OPTS.map(([k, l]) => `<button class="btn" data-fx="${k}">${l}</button>`).join('')}<output id="ovFxV"></output></div>
   ${CONTROLS}<div class="actions"><button class="primary" id="ovClose">${back ? 'Torna al menu' : 'Torna alla partita'}</button></div></div>`;
   $('ovSound').addEventListener('click', () => setSound(!soundOn()));
   $('ovVol').addEventListener('input', e => setVolume(e.target.value / 100));
   syncSound();
+  $('ovMusic').addEventListener('click', () => setMusic(!musicOn()));
+  $('ovMVol').addEventListener('input', e => setMusicVolume(e.target.value / 100));
+  syncMusic();
   o.querySelectorAll('[data-fx]').forEach(b => b.addEventListener('click', () => { setPref(b.dataset.fx); syncFx(); }));
   syncFx();
   $('ovClose').addEventListener('click', closeHelp); $('ovClose').focus();

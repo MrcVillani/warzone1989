@@ -1,5 +1,5 @@
 // Verifica dell'APK Android prodotto da `npm run android` (dist/warzone1989.apk).
-// Controlla pacchetto, versioni SDK, etichetta, permessi, activity di avvio, orientamento, firma
+// Controlla pacchetto, versioni SDK, etichetta, permessi (solo VIBRATE), activity di avvio, orientamento, firma
 // e che l'asset assets/index.html sia identico a dist/index.html.
 // Uso: npm run android && node tests/android/verify-apk.mjs
 // Serve l'SDK Android con build-tools 35.0.0: ANDROID_HOME (o ANDROID_SDK_ROOT, o ~/android-sdk come
@@ -50,11 +50,18 @@ check(targetSdk === '35', `targetSdk 35 (trovato: ${targetSdk})`);
 check(label === 'Warzone 1989', `etichetta «Warzone 1989» (trovata: ${label})`);
 check(!!launch && launch.startsWith('com.mrcvillani.warzone1989.'), `activity di avvio presente (${launch})`);
 
-// Permessi: nessuno (il gioco gira offline dagli asset).
+// Permessi: solo VIBRATE (vibrazione breve all'inizio del riquadro su telefono, concessa in automatico);
+// il gioco gira offline dagli asset, quindi qualunque altro permesso (rete compresa) è un errore.
+const ALLOWED_PERMS = ['android.permission.VIBRATE'];
 const perms = sh(aapt2, ['dump', 'permissions', apk]);
 if (perms.status !== 0) fail(`aapt2 dump permissions: ${perms.stderr.trim()}`);
 const used = [...perms.stdout.matchAll(/^uses-permission(?:-sdk-23)?: name='([^']+)'/gm)].map(m => m[1]);
-check(used.length === 0 && !/uses-permission/.test(b), `nessun permesso${used.length ? ` (trovati: ${used.join(', ')})` : ''}`);
+const usedBadging = [...b.matchAll(/^uses-permission(?:-sdk-23)?: name='([^']+)'/gm)].map(m => m[1]);
+const extra = [...new Set([...used, ...usedBadging])].filter(p => !ALLOWED_PERMS.includes(p));
+const declaredPerm = /^permission: /m.test(perms.stdout);
+check(extra.length === 0 && !declaredPerm,
+  `solo il permesso VIBRATE${extra.length ? ` (non ammessi: ${extra.join(', ')})` : ''}${declaredPerm ? ' (l’APK dichiara permessi propri)' : ''}`);
+check(used.includes('android.permission.VIBRATE'), `permesso VIBRATE richiesto (trovati: ${used.join(', ') || 'nessuno'})`);
 
 // Orientamento orizzontale dell'activity di avvio (sensorLandscape = 6).
 const tree = sh(aapt2, ['dump', 'xmltree', '--file', 'AndroidManifest.xml', apk]);
