@@ -36,21 +36,34 @@ onEvent((type, d) => {
 
 let last = performance.now(), uiT = 0, mmT = 0;
 let cntT = 0;
+// Un errore in una parte del fotogramma non deve fermare il ciclo: la parte salta quel fotogramma e le altre
+// vanno avanti. L'errore resta visibile: si segnala come errore non gestito (console e test end-to-end),
+// una sola volta per tipo, così un errore che si ripete non riempie la console a ogni fotogramma.
+const reported = new Set();
+function guard(part, fn) {
+  try { fn(); } catch (err) {
+    const key = `${part}|${err && err.name}|${String(err && err.message).replace(/[-\d.]+/g, '#')}`;
+    if (reported.has(key)) return;
+    reported.add(key);
+    console.error(`Errore nel fotogramma (${part}); il gioco continua.`);
+    if (typeof reportError === 'function') reportError(err); else setTimeout(() => { throw err; });
+  }
+}
 function frame(now) {
+  requestAnimationFrame(frame); // prima del lavoro: anche un errore non previsto non ferma il ciclo
   const iv = now - last, dt = Math.min(0.05, iv / 1000), t0 = performance.now(); last = now;
-  if (S && !ui.paused && !ui.overlay && S.phase === 'play') for (let k = 0; k < ui.speed; k++) step(dt);
-  if (S && (!ui.paused || ui.overlay === 'ended')) updParts(dt);
+  guard('simulazione', () => { if (S && !ui.paused && !ui.overlay && S.phase === 'play') for (let k = 0; k < ui.speed; k++) step(dt); });
+  guard('effetti', () => { if (S && (!ui.paused || ui.overlay === 'ended')) updParts(dt); });
   if (ui.sel.length && ui.sel.some(id => !ent(id))) ui.sel = ui.sel.filter(id => ent(id));
-  camScroll(dt);
-  render(now);
-  if ((mmT -= dt) <= 0) { renderMini(); mmT = 0.1; }
-  if ((uiT -= dt) <= 0) { renderPanel(false); updateBar(); uiT = 0.2; }
+  guard('camera', () => camScroll(dt));
+  guard('disegno', () => render(now));
+  if ((mmT -= dt) <= 0) { mmT = 0.1; guard('minimappa', renderMini); }
+  if ((uiT -= dt) <= 0) { uiT = 0.2; guard('pannello', () => { renderPanel(false); updateBar(); }); }
   // qualità adattiva: conta i mezzi in campo due volte al secondo e misura il fotogramma solo a partita in corso
   const running = !!S && !ui.paused && !ui.overlay && S.phase === 'play';
   let units = null;
   if (running && (cntT -= dt) <= 0) { cntT = 0.5; units = 0; for (const e of S.ents) if (e.kind === 'unit' && !e.dead) units++; }
-  if (running) frameTick(iv, performance.now() - t0, units);
-  requestAnimationFrame(frame);
+  if (running) guard('qualità', () => frameTick(iv, performance.now() - t0, units));
 }
 
 function start(data) {

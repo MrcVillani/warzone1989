@@ -255,9 +255,15 @@ export function structBuilt(d) {
 }
 // Segno dell'ordine: frecce che convergono sul punto.
 export function mark(x, y, c) { fxs.fx.push({ k: 'mark', x, y, life: 0.65, max: 0.65, c }); }
+// Nuova mappa o partita caricata (evento «world» del motore): via tutto lo stato visivo della partita precedente.
+// I tempi di S ripartono da capo, quindi un segnale o un'animazione rimasti avrebbero un'età senza senso.
 export function resetFx() {
-  fxs.parts.length = 0; fxs.fx.length = 0; fxs.wrecks.length = 0; fxs.settle.clear(); fxs.spawns.clear(); fxs.shake = 0;
-  trackLast.clear();
+  fxs.parts.length = 0; fxs.fx.length = 0; fxs.pings.length = 0; fxs.wrecks.length = 0;
+  fxs.settle.clear(); fxs.spawns.clear(); fxs.shake = 0; fxs.boxSel = null;
+  trackLast.clear(); trackFade = 0; trackPrune = 0;
+  if (trackG) { trackG.setTransform(1, 0, 0, 1, 0, 0); trackG.clearRect(0, 0, trackC.width, trackC.height); }
+  trackDirty = false;
+  barBg.length = 0; barCol.clear(); burnList.length = 0;
 }
 
 /* ---------- tracce di cingoli e ruote ---------- */
@@ -836,7 +842,9 @@ function drawRepair(g, f) {
 }
 export function render(now) {
   const t = now / 1000, ct = clock(), g = ctx, z = cam.z, { dpr, cw, ch } = view, rm = reducedMotion();
-  g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = '#0c0e0d'; g.fillRect(0, 0, cv.width, cv.height);
+  // stato della tela da capo: un fotogramma interrotto da un errore non deve lasciare trasparenze o fusioni
+  g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+  g.fillStyle = '#0c0e0d'; g.fillRect(0, 0, cv.width, cv.height);
   if (!S || !terrC) return;
   const sh = rm ? 0 : fxs.shake, ox = sh ? (Math.random() - 0.5) * 2 * sh : 0, oy = sh ? (Math.random() - 0.5) * 2 * sh : 0;
   TF[0] = dpr * z; TF[1] = (-cam.x * z + ox) * dpr; TF[2] = (-cam.y * z + oy) * dpr; home(g);
@@ -1004,8 +1012,10 @@ export function renderMini() {
   }
   g.strokeStyle = 'rgba(235,228,200,0.18)'; g.lineWidth = 1;
   for (let i = 1; i < 8; i++) { g.beginPath(); g.moveTo(i * W / 8, 0); g.lineTo(i * W / 8, H); g.moveTo(0, i * H / 8); g.lineTo(W, i * H / 8); g.stroke(); }
-  for (const p of fxs.pings) { const a = S.time - p.t; if (a > 4) continue; const k = (a * 1.5) % 1; g.strokeStyle = `rgba(224,86,74,${1 - k})`; g.lineWidth = 2; g.beginPath(); g.arc(p.x / TILE * sx, p.y / TILE * sy, 4 + k * 12, 0, 7); g.stroke(); }
-  fxs.pings = fxs.pings.filter(p => S.time - p.t < 4);
+  // un segnale vale 4 s; età negativa o non numerica (segnale rimasto da un'altra partita) → scartato
+  const pingOk = p => { const a = S.time - p.t; return Number.isFinite(a) && a >= 0 && a < 4 && Number.isFinite(p.x) && Number.isFinite(p.y); };
+  fxs.pings = fxs.pings.filter(pingOk);
+  for (const p of fxs.pings) { const k = ((S.time - p.t) * 1.5) % 1; g.strokeStyle = `rgba(224,86,74,${1 - k})`; g.lineWidth = 2; g.beginPath(); g.arc(p.x / TILE * sx, p.y / TILE * sy, 4 + k * 12, 0, 7); g.stroke(); }
   g.strokeStyle = '#f2e6c9'; g.lineWidth = 1.5;
   g.strokeRect(cam.x / TILE * sx, cam.y / TILE * sy, view.cw / cam.z / TILE * sx, view.ch / cam.z / TILE * sy);
 }
