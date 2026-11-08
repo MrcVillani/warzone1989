@@ -180,12 +180,14 @@ export const AI_PLAYER = { label: 'IA del giocatore', first: 600, gap: 95, w0: 6
      (lake: lago al centro con due guadi; bases: 2 = seconda base nemica in ENEMY_BASE2);
    - player: gasolio iniziale (res), genieri (builders), mezzi (units: progetti), edifici già pronti (structs);
    - enemy: ricerche già completate (tech), livello massimo che può ricercare (maxTier), moltiplicatore di rendita
-     (inc) e di tempo di ricerca (rs), costruisce o no (build), ondate ('base' dalla sua base, 'edge' da fuori mappa,
+     (inc) e di tempo di ricerca (rs), costruisce o no (build: true, false o 'repair', cioè i genieri riparano
+     soltanto e non piazzano edifici nuovi), ondate ('base' dalla sua base, 'edge' da fuori mappa,
      'none'), prima ondata (first, s), intervallo (gap, s), dimensione iniziale (w0), massima (wmax) e crescita per
      ondata (wstep), fabbriche massime che costruisce (factories, predefinito 2), quota dei difensori che resta in
      base quando parte un'ondata (keep, da 0 a 1, predefinito 0); bases: per ogni base comando (hq), fabbriche, laboratori, torrette, bunker, pompe, genieri e mezzi
      iniziali (x, y facoltativi: centro della base, altrimenti B1).
-     I tempi e le dimensioni delle ondate sono per «Veterano»: le altre difficoltà li scalano come in DIFF.
+     I tempi e le dimensioni delle ondate (e la rendita e i tempi di ricerca) sono per «Veterano»: le altre difficoltà
+     li scalano secondo DIFF, per la quota in MISSION_DIFF (vedi enemyConfig in mission.js).
    - timeLimit (facoltativo, s): oltre questo tempo la missione è persa. */
 export const ENEMY_BASE2 = { x: MW - 11, y: 10 };
 const ET = n => AI_TECH.slice(0, n); // le prime n ricerche dell'IA, nel suo ordine (che rispetta requisiti e livelli)
@@ -199,7 +201,7 @@ export const MISSIONS = [
     objective: { type: 'outpost', pumps: 6 },
     player: { res: 600, builders: 2, units: [LMG, LMG, LMG], structs: [] },
     enemy: {
-      tech: [], maxTier: 1, inc: 0.6, build: true, factories: 0, waves: 'none',
+      tech: [], maxTier: 1, inc: 0.6, build: 'repair', factories: 0, waves: 'none',
       bases: [{ hq: 1, towers: 12, pumps: 2, builders: 3, units: [LMG, LMG, LMG, LMG, LMG, LMG] }],
     },
   },

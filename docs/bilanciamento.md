@@ -51,7 +51,8 @@ nell'obiettivo per le missioni 1–5.
 
 - **IA del giocatore**: primo attacco a 600 s invece di 210 s. Prima ogni missione si decideva al primo assalto.
   Conosce tutte le 44 ricerche (`AI_TECH_P`) e costruisce fino a 3 fabbriche.
-- **Missione 1**: 6 pompe; avamposto con 12 torrette, 6 mezzi e genieri che riparano, ma senza fabbrica.
+- **Missione 1**: 6 pompe; avamposto con 12 torrette, 6 mezzi e genieri che riparano (`enemy.build: 'repair'`: non
+  piazzano edifici nuovi), senza fabbrica. L'obiettivo conta i 15 edifici finiti dell'avamposto.
 - **Missione 2**: 8 pompe da tenere per 9 minuti; prima ondata nemica a 150 s.
 - **Missione 3**: ondate dai bordi più grandi e in crescita più rapida.
 - **Missioni 4–8**: semi delle mappe scelti senza sacche che intrappolano i genieri; più difese e fabbriche al nemico
@@ -62,6 +63,13 @@ nell'obiettivo per le missioni 1–5.
   per intero, «normale» per niente, «difficile» in piccola parte (rendita ×1,03, ricerche più veloci del 5%, ondate un
   po' prima e più grandi). Con la scala piena «difficile» non si vinceva dalla missione 3 in poi. La schermaglia non
   cambia.
+
+## Correzione successiva: ondate con `keep`
+
+Con `keep` alto (missione 8) le ondate si fermavano dopo la terza, perché ne servivano più mezzi di quanti `AI_ARMY` e
+`keep` ne lasciassero partire: 4 partite su 10 arrivavano al limite dei 60 minuti. Ora l'ondata parte con i mezzi
+disponibili. Missione 8 dopo la correzione (N=10): «normale» 5/10, mediana 22,7 min, nessuna partita al limite;
+«difficile» 2/10, nessuna partita al limite.
 
 ## Limiti noti
 

@@ -220,6 +220,8 @@ export function aiTick(o = E) {
     }
     const dmg = structs.find(s => s.built >= 1 && s.hp < s.max * 0.6);
     if (dmg) { cmdBuild([b], dmg); continue; }
+    // build 'repair' (in missione): i genieri riparano soltanto, senza piazzare edifici nuovi.
+    if (D.build === 'repair') continue;
     let plan = null;
     const reach = S.time > 420 || (o === P && S.objective && S.objective.type === 'hold') ? 40 : 28;
     const free = deposits.filter(d => !occ[d.x + d.y * MW] && !skip.includes(d.x + d.y * MW) && Math.hypot(d.x - base.x, d.y - base.y) < reach && !S.ents.some(e => e.owner === foe && !e.dead && e.kind === 'struct' && Math.hypot(e.x / TILE - d.x, e.y / TILE - d.y) < 8))
@@ -311,7 +313,12 @@ export function aiTick(o = E) {
   // altri. In schermaglia keep non c'è e parte tutto.
   const keepN = o === E && D.keep ? Math.floor(def.length * D.keep) : 0;
   const go = keepN ? def.slice().sort((a, b) => a.id - b.id).slice(0, def.length - keepN) : def;
-  if (waves === 'base' && !guard && ((S.time >= ai.nextAttack && go.length >= ai.waveSize && strongEnough) || renew)) {
+  // Con keep l'ondata non chiede più mezzi di quanti ne possono partire al limite AI_ARMY: al più AI_ARMY difensori
+  // (meno i mezzi già fuori, all'attacco o di ritorno), meno la quota tenuta in base. Se waveSize li supera, parte
+  // con quelli (almeno uno). In schermaglia keep non c'è e serve waveSize.
+  let need = ai.waveSize;
+  if (o === E && D.keep) { const n = AI_ARMY - (army.length - def.length); need = Math.max(1, Math.min(need, n - Math.floor(n * D.keep))); }
+  if (waves === 'base' && !guard && ((S.time >= ai.nextAttack && go.length >= need && strongEnough) || renew)) {
     const tg = foeTarget(foe, base.x * TILE, base.y * TILE);
     if (tg) {
       go.forEach(u => { u.role = 'atk'; });

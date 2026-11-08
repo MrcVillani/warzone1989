@@ -10,7 +10,8 @@ import { alive } from './sim.js';
 // Configurazione del nemico della missione, scalata dalla difficoltà (i valori della missione sono per «Veterano»):
 // in missione la differenza di ogni grandezza di DIFF rispetto a «Veterano» vale solo per la quota in
 // MISSION_DIFF[diff] (per esempio rendita a «Comandante»: 1 + (1,3 − 1) × MISSION_DIFF.difficile.inc); a «Veterano»
-// i valori sono quelli della missione. S.ecfg = {label, inc, rs, first, gap, w0, wmax, wstep, build, waves, maxTier, factories, keep}.
+// i valori sono quelli della missione. S.ecfg = {label, inc, rs, first, gap, w0, wmax, wstep, build, waves, maxTier, factories, keep};
+// build è true, false o 'repair' (i genieri riparano soltanto, senza piazzare edifici nuovi).
 function enemyConfig(en, diff) {
   const D = DIFF[diff], N = DIFF.normale, waves = en.waves || 'none', K = MISSION_DIFF[diff];
   const ratio = (k, key) => 1 + (D[key] / N[key] - 1) * k;
@@ -20,7 +21,7 @@ function enemyConfig(en, diff) {
     gap: Math.round((en.gap ?? N.gap) * ratio(K.waves, 'gap')),
     w0: Math.max(1, (en.w0 ?? N.w0) + Math.round((D.w0 - N.w0) * K.waves)),
     wmax: Math.max(1, Math.round((en.wmax ?? N.wmax) * ratio(K.waves, 'wmax'))),
-    wstep: en.wstep ?? 2, build: !!en.build, waves, maxTier: en.maxTier ?? 4, factories: en.factories ?? 2,
+    wstep: en.wstep ?? 2, build: en.build === 'repair' ? 'repair' : !!en.build, waves, maxTier: en.maxTier ?? 4, factories: en.factories ?? 2,
     keep: en.keep ?? 0,
   };
 }
@@ -128,8 +129,9 @@ function initObjective(spec, bases) {
   else throw new Error(`Obiettivo sconosciuto: ${spec.type}`);
   return o;
 }
-// Entità nemica che conta per l'obiettivo: nell'avamposto ogni edificio; altrimenti comando, fabbrica o geniere.
-const keyEnt = (type, e) => type === 'outpost' ? e.kind === 'struct' : (e.kind === 'struct' ? e.type === 'hq' || e.type === 'factory' : !!e.builder);
+// Entità nemica che conta per l'obiettivo: nell'avamposto ogni edificio finito (i genieri e i cantieri no);
+// altrimenti comando, fabbrica o geniere.
+const keyEnt = (type, e) => type === 'outpost' ? e.kind === 'struct' && e.built >= 1 : (e.kind === 'struct' ? e.type === 'hq' || e.type === 'factory' : !!e.builder);
 // Chiamata da kill (combat.js) per ogni entità distrutta in missione.
 export function noteKill(e) {
   const o = S.objective;
@@ -138,11 +140,12 @@ export function noteKill(e) {
 }
 const mmss = s => { s = Math.max(0, Math.ceil(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+// st: edifici nemici finiti (quelli che contano nell'avamposto).
 function enemyKeys() {
   let hq = 0, fac = 0, bld = 0, st = 0;
   for (const e of S.ents) {
     if (e.dead || e.owner !== E) continue;
-    if (e.kind === 'struct') { st++; if (e.type === 'hq') hq++; else if (e.type === 'factory') fac++; }
+    if (e.kind === 'struct') { if (e.built >= 1) st++; if (e.type === 'hq') hq++; else if (e.type === 'factory') fac++; }
     else if (e.builder) bld++;
   }
   return { hq, fac, bld, st };

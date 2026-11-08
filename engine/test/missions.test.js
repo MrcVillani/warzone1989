@@ -7,7 +7,7 @@ import {
   TILE, MW, MH, N, P, E, B0, B1, WATER, DIRT, DIFF, MISSION_DIFF, PUMP_RATE, MISSIONS, ENEMY_BASE2, TECH, TIERS,
   S, newGame, genMap, missionMap, bfsReach, FORDS, LAKE_HALF, terr, deposits, occ, reachMap, reachableAdj,
   serialize, loadState, step, kill, makeStruct, alive, updateObjective, missionTick, techBlockReason, techAvail,
-  tierAvail, tierCap, startResearch, pumpRate, techSum, aiDesign, aiTick, dStats, enqueue, onEvent, makeUnit, formation,
+  tierAvail, tierCap, startResearch, pumpRate, techSum, aiDesign, aiTick, dStats, enqueue, onEvent, makeUnit, formation, AI_ARMY,
 } from '../index.js';
 import { findSpot, recordEvents, run, seedRandom, structs, units } from './helpers.js';
 
@@ -63,7 +63,7 @@ MISSIONS.forEach((M, i) => {
     assert.deepEqual(S.tech[E], Object.fromEntries((en.tech || []).map(id => [id, true])));
     assert.deepEqual(S.tech[P], {});
     assert.equal(S.ecfg.maxTier, en.maxTier ?? 4);
-    assert.equal(S.ecfg.build, !!en.build);
+    assert.equal(S.ecfg.build, en.build === 'repair' ? 'repair' : !!en.build, 'build: true, false o \'repair\'');
     assert.equal(S.ecfg.waves, en.waves || 'none');
     // obiettivo
     assert.equal(S.objective.type, M.objective.type);
@@ -182,36 +182,66 @@ test('schermaglia: la scala delle difficoltà resta quella piena di DIFF (MISSIO
 
 /* ---------- nemico in missione: fabbriche e difensori che restano in base ---------- */
 
-test('enemy.factories 0 (Testa di ponte): i genieri dell’avamposto costruiscono, ma mai una fabbrica', () => {
+test('Testa di ponte (build \'repair\', factories 0): i genieri dell’avamposto non piazzano nulla, mai una fabbrica', () => {
   const en = at(0).enemy;
   assert.equal(en.factories, 0);
-  assert.equal(en.build, true);
-  // stessa partita, stessa casualità: con factories 0 nessuna fabbrica; con il valore predefinito (2) sì
-  const play = factories => {
-    const keep = en.factories;
+  assert.equal(en.build, 'repair');
+  // stessa partita, stessa casualità, con i dati della missione ritoccati per le controprove
+  const play = (build, factories) => {
+    const keep = { build: en.build, factories: en.factories };
+    en.build = build;
     if (factories === undefined) delete en.factories; else en.factories = factories;
     const restore = seedRandom(5);
     try {
       mission(0);
+      assert.equal(S.ecfg.build, build);
       assert.equal(S.ecfg.factories, factories ?? 2);
-      const towers0 = structs(E, 'tower').length, seen = new Set();
-      let firstFactory = null;
+      const ids0 = new Set(enemyStructs().map(e => e.id));
+      let firstFactory = null, placed = 0;
       for (let t = 0; t < 400 && S.phase === 'play'; t++) {
         run(1);
-        for (const e of S.ents) if (!e.dead && e.owner === E && e.kind === 'struct') {
-          seen.add(e.type);
+        for (const e of enemyStructs()) {
+          if (!ids0.has(e.id)) { placed++; ids0.add(e.id); }
           if (e.type === 'factory' && firstFactory == null) firstFactory = S.time;
         }
       }
-      return { seen, firstFactory, pumps: structs(E, 'pump').length, towers0 };
-    } finally { restore(); en.factories = keep; }
+      return { placed, firstFactory, pumps: structs(E, 'pump').length, builders: units(E, u => u.builder).length };
+    } finally { restore(); en.build = keep.build; en.factories = keep.factories; }
   };
-  const none = play(0);
-  assert.equal(none.firstFactory, null, 'nessuna fabbrica nemica, nemmeno in costruzione');
-  assert.ok(none.pumps > at(0).enemy.bases[0].pumps, `i genieri costruiscono comunque (pompe nemiche: ${none.pumps})`);
-  const two = play(undefined);
+  const repair = play('repair', 0);
+  assert.equal(repair.placed, 0, 'nessun edificio nemico nuovo, nemmeno un cantiere');
+  assert.equal(repair.firstFactory, null, 'nessuna fabbrica nemica');
+  assert.equal(repair.pumps, en.bases[0].pumps, 'le pompe restano quelle di partenza');
+  assert.ok(repair.builders >= en.bases[0].builders, `i genieri ci sono (${repair.builders}) ma non costruiscono`);
+  // controprove: con build true e factories 0 i genieri costruiscono, ma niente fabbrica; con factories predefinito sì
+  const none = play(true, 0);
+  assert.ok(none.placed > 0 && none.pumps > en.bases[0].pumps, `controprova: con build true i genieri costruiscono (pompe nemiche: ${none.pumps})`);
+  assert.equal(none.firstFactory, null, 'factories 0: nessuna fabbrica nemica, nemmeno in costruzione');
+  const two = play(true, undefined);
   assert.ok(two.firstFactory != null && two.firstFactory < 200, 'controprova: senza factories 0 la fabbrica arriva presto');
-  assert.equal(en.factories, 0, 'i dati della missione tornano come prima');
+  assert.equal(en.build, 'repair', 'i dati della missione tornano come prima');
+  assert.equal(en.factories, 0);
+});
+
+test('Testa di ponte: un edificio dell’avamposto sotto il 60% viene riparato dai genieri nemici', () => {
+  const restore = seedRandom(7);
+  try {
+    mission(0);
+    const [hq] = structs(E, 'hq');
+    // la torretta più vicina al comando, al 40%
+    const tw = structs(E, 'tower').sort((a, b) => Math.hypot(a.x - hq.x, a.y - hq.y) - Math.hypot(b.x - hq.x, b.y - hq.y))[0];
+    tw.hp = Math.round(tw.max * 0.4);
+    const hp0 = tw.hp, n0 = enemyStructs().length;
+    let reached = null;
+    for (let t = 0; t < 120 && S.phase === 'play' && !tw.dead; t++) {
+      run(1);
+      if (reached == null && tw.hp >= tw.max * 0.6) reached = S.time;
+    }
+    assert.ok(!tw.dead);
+    assert.ok(reached != null, `la torretta non torna sopra il 60% (${tw.hp}/${tw.max}, era ${hp0})`);
+    assert.ok(tw.hp > hp0);
+    assert.equal(enemyStructs().length, n0, 'i genieri riparano, ma non aggiungono edifici');
+  } finally { restore(); }
 });
 
 // Difensori nemici in più accanto al comando, tutti con lo stesso progetto.
@@ -264,6 +294,40 @@ test('enemy.keep: l’ondata parte solo se i mezzi che partono (non tutti i dife
   assert.equal(S.ai.wave, 1);
   assert.equal(units(E, u => u.role === 'atk').length, w0);
   assert.equal(units(E, u => u.role === 'def').length, w0);
+});
+
+test('enemy.keep 0,75 (Il comando del Direttorio): all’esercito al limite AI_ARMY l’ondata parte anche se waveSize supera i mezzi lanciabili', () => {
+  const i = MISSIONS.findIndex(M => M.id === 'comando-direttorio');
+  assert.ok(i >= 0);
+  mission(i);
+  assert.equal(S.ecfg.keep, 0.75);
+  // esercito tutto di parti dell'ultimo livello (così non scatta il rinnovo dell'esercito superato) e al limite
+  killAll(units(E, u => !u.builder));
+  const [hq] = structs(E, 'hq');
+  const top = { c: 'X', p: 'TR', w: 'CN105' };
+  for (const [x, y] of formation(hq.tx + 1, hq.ty + 5, AI_ARMY, false)) makeUnit(E, top, (x + 0.5) * TILE, (y + 0.5) * TILE);
+  const army = units(E, u => !u.builder);
+  assert.equal(army.length, AI_ARMY);
+  // ne restano floor(50 × 0,75) = 37, ne possono partire 13; waveSize è al massimo (24): prima l'ondata non partiva mai
+  const free = AI_ARMY - Math.floor(AI_ARMY * 0.75);
+  assert.equal(free, 13);
+  S.ai.waveSize = S.ecfg.wmax;
+  assert.ok(S.ai.waveSize > free, `waveSize ${S.ai.waveSize}`);
+  S.time = S.ai.nextAttack;
+  aiTick(E);
+  assert.equal(S.ai.wave, 1, 'l’ondata parte');
+  assert.equal(units(E, u => u.role === 'atk').length, free);
+  assert.equal(units(E, u => u.role === 'def').length, AI_ARMY - free);
+  // con 13 mezzi già fuori i difensori sono 37: n = 50 − 13, ne restano floor(37 × 0,75) = 27 e ne partono 10
+  const next = S.ai.nextAttack;
+  S.ai.waveSize = S.ecfg.wmax;
+  aiTick(E);
+  assert.equal(S.ai.wave, 1, 'non prima dell’intervallo');
+  S.time = next;
+  aiTick(E);
+  assert.equal(S.ai.wave, 2, 'anche la seconda ondata parte');
+  assert.equal(units(E, u => u.role === 'atk').length, free + 10);
+  assert.equal(units(E, u => u.role === 'def').length, 27);
 });
 
 test('enemy.keep assente: parte tutto l’esercito, come in schermaglia', () => {
@@ -507,12 +571,12 @@ test('outpost: pompe avviate (una volta per tutte), poi tutti gli edifici nemici
   assert.equal(o.pumpsOk, true, 'una pompa persa dopo non toglie il traguardo');
   assert.equal(o.progress, need + 1);
   assert.equal(o.done, false);
-  // i mezzi nemici non contano, gli edifici sì. I genieri dell'avamposto (build: true, senza fabbriche) rimetterebbero
-  // subito una pompa o una torretta: si tolgono anche loro, così il passo dopo non ricomincia l'avamposto.
+  // i mezzi e i genieri nemici non contano, gli edifici finiti sì. I genieri dell'avamposto (build: 'repair') riparano
+  // soltanto e non rimettono edifici: restano vivi, e il passo dopo l'avamposto non ricomincia.
   const ev = recordEvents();
-  killAll(units(E, u => u.builder));
   killAll(enemyStructs());
-  assert.ok(units(E).length > 0, 'restano mezzi nemici');
+  assert.ok(units(E, u => !u.builder).length > 0, 'restano mezzi nemici');
+  assert.ok(units(E, u => u.builder).length > 0, 'restano genieri nemici');
   updateObjective();
   assert.equal(o.done, true);
   assert.equal(o.progress, o.target);
@@ -523,6 +587,46 @@ test('outpost: pompe avviate (una volta per tutte), poi tutti gli edifici nemici
   assert.deepEqual(ev.of('end'), [{ won: true, reason: 'objective' }]);
   const last = ev.of('objective').at(-1);
   assert.deepEqual(last, { type: 'outpost', progress: o.target, target: o.target, text: o.text, done: true });
+});
+
+test('outpost (Testa di ponte): il conteggio parte da 15; distrutti gli edifici, in 10 s non ricompare nulla e l’obiettivo si completa', () => {
+  const restore = seedRandom(11);
+  try {
+    mission(0);
+    const o = S.objective, need = at(0).objective.pumps;
+    assert.equal(S.ecfg.build, 'repair');
+    assert.equal(enemyStructs().length, 15);
+    assert.equal(o.target, need + 15);
+    assert.match(o.text, /edifici nemici rimasti: 15$/);
+    // un cantiere nemico non conta: né all'inizio né dopo
+    const d = deposits.filter(d => !occ[d.x + d.y * MW]).sort((a, b) => Math.hypot(a.x - B1.x, a.y - B1.y) - Math.hypot(b.x - B1.x, b.y - B1.y))[0];
+    const site = makeStruct('pump', E, d.x, d.y, false);
+    assert.ok(site.built < 1);
+    updateObjective();
+    assert.match(o.text, /edifici nemici rimasti: 15$/, 'il cantiere non si conta');
+    killAll(enemyStructs().filter(e => e.built >= 1));
+    kill(site, P);
+    assert.equal(o.killed, 15, 'il cantiere distrutto non si conta');
+    assert.ok(units(E, u => u.builder).length > 0, 'i genieri nemici restano');
+    // 10 s di gioco senza pompe avviate: la missione continua e i genieri non rimettono nulla
+    const placed = new Set();
+    for (let t = 0; t < 10; t++) { run(1); for (const e of enemyStructs()) placed.add(`${e.type}@${e.tx},${e.ty}`); }
+    assert.equal(S.phase, 'play');
+    assert.deepEqual([...placed], [], 'nessun edificio nemico ricompare, nemmeno un cantiere');
+    updateObjective();
+    assert.match(o.text, /edifici nemici rimasti: 0$/);
+    assert.equal(o.done, false, 'mancano ancora le pompe');
+    // con le pompe l'obiettivo è completo
+    const ev = recordEvents();
+    playerPumps(need);
+    run(1);
+    ev.stop();
+    assert.equal(o.done, true);
+    assert.equal(o.progress, o.target);
+    assert.equal(S.phase, 'won');
+    assert.deepEqual(ev.of('end'), [{ won: true, reason: 'objective' }]);
+    assert.equal(enemyStructs().length, 0);
+  } finally { restore(); }
 });
 
 test('hold: secondi consecutivi con le pompe attive; una pompa persa azzera; vittoria al tempo pieno', () => {
