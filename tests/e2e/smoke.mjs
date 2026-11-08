@@ -6,6 +6,7 @@ import { mkdirSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { runCommandChecks } from './comandi.mjs';
+import { runPhaseBChecks } from './faseb.mjs';
 
 // Playwright si carica con require: così vale anche l'installazione globale del sistema.
 const { chromium, devices } = createRequire(import.meta.url)('playwright');
@@ -91,6 +92,8 @@ for (const [name, opts] of profiles.filter(([n]) => !only || n === only)) {
 }
 // Comandi con un clic, «Tutto l'esercito», Esc, pulsante «Suono» e «riduci movimento» (tests/e2e/comandi.mjs).
 await runCommandChecks({ browser, url, check, profiles: profiles.filter(([n]) => !only || n === only) });
+// Fase B: schede Ricerca, Progetta e Costruisci, battaglia con le armi nuove, qualità degli effetti (tests/e2e/faseb.mjs).
+await runPhaseBChecks({ browser, url, check, todo, profiles: profiles.filter(([n]) => !only || n === only) });
 await browser.close();
 if (known.length) console.log(`\n${known.length} problemi noti (TODO), non bloccanti:\n- ${known.join('\n- ')}`);
 if (failures.length) { console.error(`\n${failures.length} controlli falliti.`); process.exit(1); }
