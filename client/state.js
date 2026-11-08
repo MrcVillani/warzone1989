@@ -5,7 +5,7 @@ export const PAL = [
   { body: '#a8463b', dark: '#4f1c17', light: '#dd8b7f', dot: '#e0564a' },
 ];
 export const ui = {
-  tab: 'build', placing: null, amove: false, mode: 'select', producer: 0,
+  tab: 'build', placing: null, amove: false, producer: 0,
   draft: { c: 'L', p: 'W', w: 'MG' }, key: '', paused: true, speed: 1, overlay: 'start',
   diff: 'normale', groups: {}, sel: [], lastGroup: null, lastGroupT: 0,
   // resFold: livelli della scheda Ricerca aperti o chiusi dal giocatore (livello → true/false; se manca, default)

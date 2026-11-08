@@ -6,7 +6,8 @@ import { initAudio, fxSound, uiSfx, audioState, onAudioReady, heard } from './au
 import { attachMusic, musicMode, musicHit, musicDuck, musicState } from './music.js';
 import { frameTick, onQualityChange, qualityState, setPref } from './quality.js';
 import { initInput, camScroll } from './input.js';
-import { initUI, renderPanel, updateBar, toast, startGame, randomSeed } from './ui.js';
+import { initUI, renderPanel, updateBar, updateSelCount, toast, startGame, randomSeed } from './ui.js';
+import { alertFx, alertPing, alertBuilt, alertToast, updateArrows, resetAlerts } from './alerts.js';
 import { initScreens, showStart, showEnd, showCampaign, showBrief, refreshObjective, resetObjectiveHud, limitText, missionIndex } from './screens.js';
 
 const cv = document.getElementById('view'), mini = document.getElementById('mini');
@@ -18,11 +19,12 @@ onAudioReady((ac, master) => attachMusic(ac, master));
 onQualityChange(() => resize());
 
 onEvent((type, d) => {
-  if (type === 'world') { resetFx(); renderTerrain(S.seed); }
+  if (type === 'world') { resetFx(); resetAlerts(); renderTerrain(S.seed); }
   else if (type === 'fog') updateFogImage();
-  else if (type === 'fx') { spawnFx(d); fxSound(d); musicFx(d); }
+  else if (type === 'fx') { spawnFx(d); fxSound(d); musicFx(d); alertFx(d); }
   else if (type === 'toast') {
-    toast(d.text, d.kind);
+    // avvisi con una posizione (contatto, edificio pronto o perso, reparti in arrivo): toccandoli si va lì
+    alertToast(toast(d.text, d.kind), d);
     if (d.kind === 'bad') musicHit(/^Contatto nemico/.test(d.text) ? 0.3 : 0.1);
     // allarme radio sul contatto nemico; i toast di «pronto» e «ricerca» fanno da riserva agli eventi dedicati
     // (i suoni hanno un intervallo minimo, quindi non si sentono due volte)
@@ -30,9 +32,9 @@ onEvent((type, d) => {
     else if (/^Ricerca completata/.test(d.text)) uiSfx('research');
     else if (/ (pronto|pronta) nel settore/.test(d.text)) uiSfx('built');
   }
-  else if (type === 'ping') fxs.pings.push({ x: d.x, y: d.y, t: S.time });
+  else if (type === 'ping') { fxs.pings.push({ x: d.x, y: d.y, t: S.time }); alertPing(d); }
   else if (type === 'unit') { unitSpawned(d); if (d.owner === P) uiSfx('unitReady'); }
-  else if (type === 'built') { structBuilt(d); if (d.owner === P) uiSfx('built'); }
+  else if (type === 'built') { structBuilt(d); alertBuilt(d); if (d.owner === P) uiSfx('built'); }
   else if (type === 'research') { if (d.owner === P) uiSfx('research'); }
   else if (type === 'placed') structPlaced(d);
   else if (type === 'objective') refreshObjective(d);
@@ -85,6 +87,7 @@ function frame(now) {
   if (ui.sel.length && ui.sel.some(id => !ent(id))) ui.sel = ui.sel.filter(id => ent(id));
   guard('camera', () => camScroll(dt));
   guard('disegno', () => render(now));
+  guard('frecce', () => { updateArrows(); updateSelCount(); });
   if ((mmT -= dt) <= 0) { mmT = 0.1; guard('minimappa', renderMini); }
   if ((uiT -= dt) <= 0) { uiT = 0.2; guard('pannello', () => { renderPanel(false); updateBar(); if (S && S.timeLimit) limitText(); }); guard('musica', () => { const m = musicFor(); if (m) musicMode(m); }); }
   // qualità adattiva: conta i mezzi in campo due volte al secondo e misura il fotogramma solo a partita in corso

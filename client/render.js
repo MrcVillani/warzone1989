@@ -253,8 +253,9 @@ export function structBuilt(d) {
   const s = ent(d.id); if (!s || (s.owner !== P && !canSee(P, s)) || !nearView(s.x, s.y, 60)) return;
   dust(s.x, s.y, s.w * TILE * 0.45, reducedMotion() ? 3 : 8);
 }
-// Segno dell'ordine: frecce che convergono sul punto.
-export function mark(x, y, c) { fxs.fx.push({ k: 'mark', x, y, life: 0.65, max: 0.65, c }); }
+// Segno dell'ordine: frecce che convergono sul punto. Su telefono è più grande (si vede sotto il dito).
+const coarseQ = typeof matchMedia === 'function' ? matchMedia('(pointer: coarse)') : null;
+export function mark(x, y, c) { fxs.fx.push({ k: 'mark', x, y, life: 0.65, max: 0.65, c, s: coarseQ && coarseQ.matches ? 1.6 : 1 }); }
 // Nuova mappa o partita caricata (evento «world» del motore): via tutto lo stato visivo della partita precedente.
 // I tempi di S ripartono da capo, quindi un segnale o un'animazione rimasti avrebbero un'età senza senso.
 export function resetFx() {
@@ -699,15 +700,15 @@ function drawUnit(g, u, t, ct, k) {
 }
 // Segno dell'ordine: quattro frecce che si stringono sul punto, poi svaniscono.
 function drawMark(g, f, rm) {
-  const k = f.life / f.max, p = 1 - k, e = 1 - (1 - Math.min(1, p / 0.55)) ** 3, d = rm ? 7 : 20 - 14 * e;
-  g.strokeStyle = f.c; g.lineWidth = 2; g.globalAlpha = k < 0.35 ? k / 0.35 : 1;
+  const sc = f.s || 1, k = f.life / f.max, p = 1 - k, e = 1 - (1 - Math.min(1, p / 0.55)) ** 3, d = (rm ? 7 : 20 - 14 * e) * sc, h = 5 * sc;
+  g.strokeStyle = f.c; g.lineWidth = 2 * Math.sqrt(sc); g.globalAlpha = k < 0.35 ? k / 0.35 : 1;
   g.beginPath();
   for (let i = 0; i < 4; i++) {
     const a = i * Math.PI / 2 + Math.PI / 4, cx = f.x + Math.cos(a) * d, cy = f.y + Math.sin(a) * d;
-    g.moveTo(cx + Math.cos(a + 0.75) * 5, cy + Math.sin(a + 0.75) * 5); g.lineTo(cx, cy); g.lineTo(cx + Math.cos(a - 0.75) * 5, cy + Math.sin(a - 0.75) * 5);
+    g.moveTo(cx + Math.cos(a + 0.75) * h, cy + Math.sin(a + 0.75) * h); g.lineTo(cx, cy); g.lineTo(cx + Math.cos(a - 0.75) * h, cy + Math.sin(a - 0.75) * h);
   }
   g.stroke();
-  if (p > 0.45) { g.lineWidth = 1.5; g.beginPath(); g.arc(f.x, f.y, 2 + 6 * (p - 0.45), 0, 7); g.stroke(); }
+  if (p > 0.45) { g.lineWidth = 1.5 * Math.sqrt(sc); g.beginPath(); g.arc(f.x, f.y, (2 + 6 * (p - 0.45)) * sc, 0, 7); g.stroke(); }
   g.globalAlpha = 1;
 }
 export function hpColor(f) { return f > 0.6 ? '#93a85c' : f > 0.3 ? '#e2b84a' : '#d0533f'; }
@@ -979,7 +980,12 @@ export function render(now) {
   }
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   const b = fxs.boxSel;
-  if (b) { const x = Math.min(b.sx, b.x), y = Math.min(b.sy, b.y), w = Math.abs(b.x - b.sx), h = Math.abs(b.y - b.sy); g.fillStyle = 'rgba(240,194,122,0.08)'; g.fillRect(x, y, w, h); g.strokeStyle = '#f0c27a'; g.lineWidth = 1; g.strokeRect(x + 0.5, y + 0.5, w, h); }
+  if (b) {
+    const x = Math.min(b.sx, b.x), y = Math.min(b.sy, b.y), w = Math.abs(b.x - b.sx), h = Math.abs(b.y - b.sy);
+    // tocco lungo appena riconosciuto: anello sotto il dito, «ora trascina per il riquadro»
+    if (b.long) { g.strokeStyle = 'rgba(240,194,122,0.85)'; g.lineWidth = 2; g.beginPath(); g.arc(b.sx, b.sy, 24, 0, 7); g.stroke(); }
+    g.fillStyle = 'rgba(240,194,122,0.08)'; g.fillRect(x, y, w, h); g.strokeStyle = '#f0c27a'; g.lineWidth = 1; g.strokeRect(x + 0.5, y + 0.5, w, h);
+  }
   g.font = '600 12px "IBM Plex Sans Condensed", sans-serif';
   if (ui.amove) { g.fillStyle = 'rgba(17,20,18,0.85)'; g.fillRect(8, 8, 206, 24); g.fillStyle = '#e79a8f'; g.fillText('Attacca-muovi: scegli la destinazione', 16, 24); }
   else if (ui.placing) { g.fillStyle = 'rgba(17,20,18,0.85)'; g.fillRect(8, 8, 246, 24); g.fillStyle = '#f0c27a'; g.fillText(`${STRUCTS[ui.placing].name}: scegli il punto (Esc annulla)`, 16, 24); }
