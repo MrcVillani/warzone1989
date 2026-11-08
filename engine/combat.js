@@ -1,6 +1,7 @@
 // Distanze, bersagli, danni, colpi e proiettili.
 import { TILE, P, E, STRUCTS, WEAPONS } from './data.js';
 import { S, idx, proj, emit, ent, armorOf, canSee, markOcc, dmgMul } from './world.js';
+import { noteKill } from './mission.js';
 import { angDiff, turnToward, ftile, gridRef } from './util.js';
 
 // Distanza dal bordo del bersaglio: rettangolo per gli edifici, cerchio per i mezzi.
@@ -49,6 +50,7 @@ export function damage(t, dmg, owner, w) {
     emit('ping', { x: t.x, y: t.y });
   }
   if (t.owner === E) S.ai.alert = { x: t.x, y: t.y, t: S.time };
+  else if (S.aiP) S.aiP.alert = { x: t.x, y: t.y, t: S.time };
   if (t.hp <= 0) kill(t, owner);
 }
 export function kill(e, by) {
@@ -66,6 +68,7 @@ export function kill(e, by) {
     emit('fx', { k: 'scorch', x: e.x, y: e.y, r: 13 });
   }
   if (by != null && by !== e.owner) S.stats.kills[by]++;
+  if (S.objective) noteKill(e);
   S.stats.lost[e.owner]++;
 }
 // Danno ad area ai soli nemici: pieno al centro, metà sul bordo del raggio r (caselle).

@@ -10,3 +10,4 @@ android/local.properties
 *.apk
 .DS_Store
 android/app/src/main/assets/index.html
+tests/balance/out/

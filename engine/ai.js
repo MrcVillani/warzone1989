@@ -1,13 +1,16 @@
 // IA del Direttorio Ferreo: economia, ricerca, edifici, produzione e attacchi a ondate.
-import { TILE, MW, P, E, B0, B1, STRUCTS, CHASSIS, PROPS, WEAPONS, TECH_BY, DIFF, AI_TECH, AI_STALL, AI_ARMY, AI_RECALL, BUILDER } from './data.js';
-import { S, occ, idx, deposits, emit, dStats, armorOf } from './world.js';
-import { passable, nearestFree, reachMap, reachableAdj } from './path.js';
-import { cmdMove, cmdBuild, canPlace, placeStruct, enqueue, techAvail, startResearch, demolish } from './orders.js';
-import { ftile } from './util.js';
+// La stessa IA può guidare il lato del giocatore (aiTick(P), con S.autoplay): stato in S.aiP, tempi in AI_PLAYER;
+// in missione persegue l'obiettivo (in «tieni le pompe» e «resisti» difende e non attacca).
+import { TILE, MW, P, E, B0, B1, STRUCTS, CHASSIS, PROPS, WEAPONS, TECH_BY, AI_TECH, AI_STALL, AI_ARMY, AI_RECALL, AI_PLAYER, BUILDER, UNIT_CAP } from './data.js';
+import { S, occ, idx, deposits, explored, emit, dStats, armorOf, enemyCfg, makeUnit } from './world.js';
+import { passable, nearestFree, reachMap, reachableAdj, formation } from './path.js';
+import { cmdMove, cmdBuild, canPlace, placeStruct, enqueue, techAvail, startResearch, demolish, unitCount } from './orders.js';
+import { ftile, gridRef } from './util.js';
 
 // R: caselle raggiungibili dai genieri (reachMap); il posto scelto deve avere almeno una casella accanto raggiungibile.
-function aiSpot(o, type, base, forward, R) {
-  const dx = B0.x - base.x, dy = B0.y - base.y, dl = Math.hypot(dx, dy) || 1;
+// toward: casella verso cui si spinge in avanti (la base avversaria).
+function aiSpot(o, type, base, forward, R, toward) {
+  const dx = toward.x - base.x, dy = toward.y - base.y, dl = Math.hypot(dx, dy) || 1;
   let px = base.x, py = base.y;
   if (forward) { const k = 5 + Math.random() * 3, side = (Math.random() - 0.5) * 9; px += dx / dl * k - dy / dl * side; py += dy / dl * k + dx / dl * side; }
   else { const a = Math.random() * Math.PI * 2, k = 4 + Math.random() * 4; px += Math.cos(a) * k; py += Math.sin(a) * k; }
@@ -79,23 +82,86 @@ function bestTier(o) {
   for (const parts of [CHASSIS, PROPS, WEAPONS]) for (const k in parts) { const x = parts[k]; if (!x.req || S.tech[o][x.req]) t = Math.max(t, x.tier); }
   return t;
 }
-function playerTarget(fx, fy) {
+// Bersaglio dell'avversario `foe` più vicino al punto: prima gli edifici, poi qualsiasi cosa.
+function foeTarget(foe, fx, fy) {
   let best = null, bd = 1e18;
-  for (const e of S.ents) { if (e.dead || e.owner !== P || e.kind !== 'struct') continue; const d = (e.x - fx) ** 2 + (e.y - fy) ** 2; if (d < bd) { bd = d; best = e; } }
-  if (!best) for (const e of S.ents) { if (e.dead || e.owner !== P) continue; const d = (e.x - fx) ** 2 + (e.y - fy) ** 2; if (d < bd) { bd = d; best = e; } }
+  for (const e of S.ents) { if (e.dead || e.owner !== foe || e.kind !== 'struct') continue; const d = (e.x - fx) ** 2 + (e.y - fy) ** 2; if (d < bd) { bd = d; best = e; } }
+  if (!best) for (const e of S.ents) { if (e.dead || e.owner !== foe) continue; const d = (e.x - fx) ** 2 + (e.y - fy) ** 2; if (d < bd) { bd = d; best = e; } }
   return best;
 }
-export function aiTick() {
-  const o = E, ai = S.ai, D = DIFF[S.diff];
+// Valore di un gruppo di mezzi: somma dei costi dei progetti. foeWorth: l'esercito del lato più metà delle sue
+// torrette e dei suoi bunker.
+const unitWorth = u => u.builder ? 0 : CHASSIS[u.d.c].cost + PROPS[u.d.p].cost + WEAPONS[u.d.w].cost;
+const worth = list => list.reduce((a, u) => a + unitWorth(u), 0);
+function foeWorth(foe) {
+  let v = 0;
+  for (const e of S.ents) {
+    if (e.dead || e.owner !== foe) continue;
+    if (e.kind === 'unit') v += unitWorth(e);
+    else if ((e.type === 'tower' || e.type === 'bunker') && e.built >= 1) v += STRUCTS[e.type].cost * 0.5;
+  }
+  return v;
+}
+// Stato dell'IA del giocatore (S.aiP), creato al primo giro.
+export function newAiState(D) { return { wave: 0, waveSize: D.w0, nextAttack: D.first, alert: null, skip: [] }; }
+// L'IA del lato `o` in missione deve solo difendere: obiettivi «tieni le pompe», «resisti» e la prima parte di
+// «resisti, poi distruggi». Il nemico non è mai in difesa pura (il suo comportamento lo decide S.ecfg).
+function defensive(o) {
+  const ob = S.objective;
+  return o === P && !!ob && (ob.type === 'hold' || ob.type === 'survive' || (ob.type === 'survive_then_destroy' && ob.stage === 1));
+}
+// Punto di raduno davanti alla base, verso la base avversaria.
+function rallyOf(base, toward) {
+  const dx = toward.x - base.x, dy = toward.y - base.y, dl = Math.hypot(dx, dy) || 1;
+  const rf = nearestFree(Math.round(base.x + dx / dl * 7), Math.round(base.y + dy / dl * 7), false, 8) || [base.x, base.y];
+  return [(rf[0] + 0.5) * TILE, (rf[1] + 0.5) * TILE];
+}
+// Ondata da fuori mappa (nemico senza base, S.ecfg.waves === 'edge'): i mezzi compaiono vicino a uno dei punti
+// d'ingresso in S.ai.spawns (caselle sul bordo), due punti insieme per le ondate grandi, e avanzano sul giocatore.
+function edgeWave(o, ai, D) {
+  const sp = ai.spawns || [];
+  if (!sp.length) return;
+  let n = Math.min(ai.waveSize, UNIT_CAP - unitCount(o), AI_ARMY - S.ents.filter(e => e.owner === o && e.kind === 'unit' && !e.dead).length);
+  ai.wave++; ai.waveSize = Math.min(D.wmax, D.w0 + ai.wave * (D.wstep ?? 2)); ai.nextAttack = S.time + D.gap;
+  if (n <= 0) return;
+  const pts = n >= 6 && sp.length > 1 ? sp : [sp[(ai.wave - 1) % sp.length]];
+  const sectors = [];
+  for (let k = 0; k < pts.length; k++) {
+    const m = Math.ceil(n / (pts.length - k)); n -= m;
+    const tiles = formation(pts[k][0], pts[k][1], m, false);
+    const grp = [];
+    for (const [x, y] of tiles) { const u = makeUnit(o, aiDesign(o), (x + 0.5) * TILE, (y + 0.5) * TILE); u.role = 'atk'; S.stats.made[o]++; grp.push(u); }
+    if (!grp.length) continue;
+    const tg = foeTarget(1 - o, grp[0].x, grp[0].y);
+    if (tg) cmdMove(grp, tg.x, tg.y, true);
+    sectors.push(gridRef(pts[k][0], pts[k][1]));
+    emit('ping', { x: grp[0].x, y: grp[0].y });
+  }
+  if (sectors.length) emit('toast', { text: `Intercettazione radio: reparti nemici entrano nel settore ${sectors.join(' e ')}.`, kind: 'warn' });
+}
+// Un giro dell'IA per il lato `o` (E se omesso: il Direttorio Ferreo).
+export function aiTick(o = E) {
+  const foe = o === E ? P : E;
+  const ai = o === E ? S.ai : (S.aiP || (S.aiP = newAiState(AI_PLAYER)));
+  const D = o === E ? enemyCfg() : AI_PLAYER;
+  const build = D.build !== false, waves = D.waves || 'base', guard = defensive(o);
   const mine = S.ents.filter(e => e.owner === o && !e.dead);
   const structs = mine.filter(e => e.kind === 'struct'), units = mine.filter(e => e.kind === 'unit');
-  const hq = structs.find(s => s.type === 'hq');
-  const base = hq ? { x: hq.tx + 1, y: hq.ty + 1 } : { x: B1.x, y: B1.y };
+  const hqs = structs.filter(s => s.type === 'hq'), hq = hqs[0];
+  const home = o === E ? B1 : B0;
+  const base = hq ? { x: hq.tx + 1, y: hq.ty + 1 } : { x: home.x, y: home.y };
+  // Verso dove spingersi: per il nemico la base del giocatore (B0); per il giocatore il comando nemico più vicino.
+  let toward = B0;
+  if (o === P) {
+    toward = B1; let bd = 1e18;
+    for (const e of S.ents) if (!e.dead && e.owner === foe && e.type === 'hq') { const d = Math.hypot(e.tx + 1 - base.x, e.ty + 1 - base.y); if (d < bd) { bd = d; toward = { x: e.tx + 1, y: e.ty + 1 }; } }
+  }
+  if (waves === 'edge' && S.time >= ai.nextAttack) edgeWave(o, ai, D);
   const builders = units.filter(u => u.builder), army = units.filter(u => !u.builder);
   const count = t => structs.filter(s => s.type === t).length;
   const res = () => S.res[o];
   // genieri
-  if (hq && hq.built >= 1 && !hq.queue.length && builders.length < (S.time > 360 ? 4 : 3) && res() >= BUILDER.cost) enqueue(hq, null, o);
+  if (build && hq && hq.built >= 1 && !hq.queue.length && builders.length < (S.time > 360 ? 4 : 3) && res() >= BUILDER.cost) enqueue(hq, null, o);
   // ricerca
   // Se un laboratorio resta libero per mancanza di gasolio, la produzione lascia da parte il costo della ricerca.
   let resReserve = 0;
@@ -112,7 +178,7 @@ export function aiTick() {
   // Caselle raggiungibili dai genieri: si calcolano solo se servono, una volta per giro.
   let R0 = null;
   const reachB = () => R0 || (R0 = reachMap(builders.map(tileOf), false));
-  if (unfinished.length && builders.length) {
+  if (build && unfinished.length && builders.length) {
     const idle = builders.some(u => u.order.t === 'idle');
     unfinished = unfinished.filter(s => {
       const stuck = stalled(s, builders) || (idle && !reachableAdj(s.tx, s.ty, s.w, s.h, reachB()).length);
@@ -122,7 +188,7 @@ export function aiTick() {
     });
   }
   const depOk = new Map(), depCheck = d => { const k = d.x + d.y * MW; if (!depOk.has(k)) depOk.set(k, depReachable(d, builders)); return depOk.get(k); };
-  for (const b of builders.filter(u => u.order.t === 'idle')) {
+  if (build) for (const b of builders.filter(u => u.order.t === 'idle')) {
     if (unfinished.length) {
       const s = unfinished.sort((a, c) => Math.hypot(a.x - b.x, a.y - b.y) - Math.hypot(c.x - b.x, c.y - b.y))[0];
       cmdBuild([b], s); s.aiA = S.time; continue;
@@ -130,32 +196,44 @@ export function aiTick() {
     const dmg = structs.find(s => s.built >= 1 && s.hp < s.max * 0.6);
     if (dmg) { cmdBuild([b], dmg); continue; }
     let plan = null;
-    const reach = S.time > 420 ? 40 : 28;
-    const free = deposits.filter(d => !occ[d.x + d.y * MW] && !skip.includes(d.x + d.y * MW) && Math.hypot(d.x - base.x, d.y - base.y) < reach && !S.ents.some(e => e.owner === P && !e.dead && e.kind === 'struct' && Math.hypot(e.x / TILE - d.x, e.y / TILE - d.y) < 8))
+    const reach = S.time > 420 || (o === P && S.objective && S.objective.type === 'hold') ? 40 : 28;
+    const free = deposits.filter(d => !occ[d.x + d.y * MW] && !skip.includes(d.x + d.y * MW) && Math.hypot(d.x - base.x, d.y - base.y) < reach && !S.ents.some(e => e.owner === foe && !e.dead && e.kind === 'struct' && Math.hypot(e.x / TILE - d.x, e.y / TILE - d.y) < 8))
       .sort((a, c) => Math.hypot(a.x - base.x, a.y - base.y) - Math.hypot(c.x - base.x, c.y - base.y));
     const dep = res() >= 50 ? free.find(depCheck) : null;
+    // Il giocatore non può piazzare una pompa dove non ha mai visto: il geniere va prima a esplorare il giacimento.
+    if (dep && o === P && !explored[dep.x + dep.y * MW]) { cmdMove([b], (dep.x + 0.5) * TILE, (dep.y + 1.5) * TILE, false); continue; }
+    const towers = guard ? Math.min(8, 2 + Math.floor(S.time / 100)) : Math.min(6, 1 + Math.floor(S.time / 140));
     if (dep) plan = { type: 'pump', tx: dep.x, ty: dep.y };
-    else if (count('factory') === 0) { if (res() >= 200) plan = aiSpot(o, 'factory', base, false, reachB()); }
-    else if (count('lab') === 0 && S.time > 40) { if (res() >= 150) plan = aiSpot(o, 'lab', base, false, reachB()); }
-    else if (count('tower') < Math.min(6, 1 + Math.floor(S.time / 140)) && res() >= 190) plan = aiSpot(o, 'tower', base, true, reachB());
-    else if (S.tech[o].stBK && count('bunker') < Math.min(3, 1 + Math.floor((S.time - 300) / 240)) && res() >= 380) plan = aiSpot(o, 'bunker', base, true, reachB());
-    else if (count('factory') < 2 && S.time > 300 && res() >= 260) plan = aiSpot(o, 'factory', base, false, reachB());
-    else if (S.tech[o].stRP && count('depot') === 0 && res() >= 220) plan = aiSpot(o, 'depot', base, false, reachB());
-    else if (count('lab') < 2 && S.time > 420 && res() >= 260) plan = aiSpot(o, 'lab', base, false, reachB());
+    else if (count('factory') === 0) { if (res() >= 200) plan = aiSpot(o, 'factory', base, false, reachB(), toward); }
+    else if (count('lab') === 0 && S.time > 40) { if (res() >= 150) plan = aiSpot(o, 'lab', base, false, reachB(), toward); }
+    else if (count('tower') < towers && res() >= 190) plan = aiSpot(o, 'tower', base, true, reachB(), toward);
+    else if (S.tech[o].stBK && count('bunker') < Math.min(3, 1 + Math.floor((S.time - 300) / 240)) && res() >= 380) plan = aiSpot(o, 'bunker', base, true, reachB(), toward);
+    else if (count('factory') < (D.factories ?? 2) && S.time > 300 && res() >= 260) plan = aiSpot(o, 'factory', base, false, reachB(), toward);
+    else if (S.tech[o].stRP && count('depot') === 0 && res() >= 220) plan = aiSpot(o, 'depot', base, false, reachB(), toward);
+    else if (count('lab') < 2 && S.time > 420 && res() >= 260) plan = aiSpot(o, 'lab', base, false, reachB(), toward);
     if (plan) { const s = placeStruct(o, plan.type, plan.tx, plan.ty); if (s) { cmdBuild([b], s); unfinished.push(s); } }
   }
-  // punto di raduno davanti alla base, verso il giocatore
-  const dx = B0.x - base.x, dy = B0.y - base.y, dl = Math.hypot(dx, dy) || 1;
-  const rf = nearestFree(Math.round(base.x + dx / dl * 7), Math.round(base.y + dy / dl * 7), false, 8) || [base.x, base.y];
-  const rally = [(rf[0] + 0.5) * TILE, (rf[1] + 0.5) * TILE];
+  // punto di raduno davanti alla base, verso l'avversario; con più comandi ogni base ha il suo (rallies), e i mezzi
+  // e le fabbriche usano quello del comando più vicino. Il giocatore che deve tenere le pompe si raduna tra le pompe.
+  let rally = rallyOf(base, toward);
+  if (guard && S.objective.type === 'hold') {
+    const pumps = structs.filter(s => s.type === 'pump' && s.built >= 1);
+    if (pumps.length) {
+      const cx = pumps.reduce((a, s) => a + s.tx, 0) / pumps.length, cy = pumps.reduce((a, s) => a + s.ty, 0) / pumps.length;
+      const f = nearestFree(Math.round((cx + base.x) / 2), Math.round((cy + base.y) / 2), false, 8);
+      if (f) rally = [(f[0] + 0.5) * TILE, (f[1] + 0.5) * TILE];
+    }
+  }
+  const rallies = hqs.length > 1 ? hqs.map((h, i) => ({ x: h.x, y: h.y, r: i ? rallyOf({ x: h.tx + 1, y: h.ty + 1 }, toward) : rally })) : null;
+  const rallyFor = e => { if (!rallies) return rally; let b = rallies[0], bd = 1e18; for (const r of rallies) { const d = (r.x - e.x) ** 2 + (r.y - e.y) ** 2; if (d < bd) { bd = d; b = r; } } return b.r; };
   // produzione
   const freeDeps = deposits.some(d => !occ[d.x + d.y * MW] && !skip.includes(d.x + d.y * MW) && Math.hypot(d.x - base.x, d.y - base.y) < 28);
   const reserve = (freeDeps ? 50 : 0) + (count('lab') === 0 && S.time > 40 ? 150 : 0) + resReserve;
   // Il limite AI_ARMY conta anche i mezzi già in coda nelle fabbriche (anche quelle ancora in costruzione).
   const factories = structs.filter(s => s.type === 'factory');
   let armyN = army.length + factories.reduce((a, f) => a + f.queue.filter(q => q.d).length, 0);
-  for (const f of factories.filter(s => s.built >= 1)) {
-    f.rally = rally;
+  if (build) for (const f of factories.filter(s => s.built >= 1)) {
+    f.rally = rallyFor(f);
     // Il progetto scelto resta in attesa (aiNext) finché non c'è il gasolio: così i mezzi costosi non vengono scartati.
     if (f.queue.length < 2 && armyN < AI_ARMY) {
       const d = f.aiNext || (f.aiNext = aiDesign(o));
@@ -165,15 +243,16 @@ export function aiTick() {
   // esercito: difesa, raduno, ondate
   for (const u of army) if (!u.role) u.role = 'def';
   const def = army.filter(u => u.role === 'def');
-  const alert = ai.alert && S.time - ai.alert.t < 4 && Math.hypot(ai.alert.x / TILE - base.x, ai.alert.y / TILE - base.y) < 20 ? ai.alert : null;
+  const al = ai.alert, near = al && (hqs.length > 1 ? hqs.some(h => Math.hypot(al.x - h.x, al.y - h.y) < 20 * TILE) : Math.hypot(al.x / TILE - base.x, al.y / TILE - base.y) < 20);
+  const alert = al && S.time - al.t < 4 && (near || (o === P && Math.hypot(al.x - rally[0], al.y - rally[1]) < 16 * TILE)) ? al : null;
   if (alert) { for (const u of def) if (u.order.t !== 'amove' && u.order.t !== 'attack') cmdMove([u], alert.x, alert.y, true); }
-  else for (const u of def) if (u.order.t === 'idle' && Math.hypot(u.x - rally[0], u.y - rally[1]) > 6 * TILE) cmdMove([u], rally[0], rally[1], true);
+  else for (const u of def) { const r = rallyFor(u); if (u.order.t === 'idle' && Math.hypot(u.x - r[0], u.y - r[1]) > 6 * TILE) cmdMove([u], r[0], r[1], true); }
   // Rinnovo dell'esercito al limite, quando il mezzo più vecchio è fatto di parti superate (l'IA ne ha già ricercate
   // di livello più alto): parte subito un'ondata con tutti i difensori, così l'esercito si consuma e la produzione
   // riprende con parti nuove. Se non ha difensori (sono tutti all'attacco e nessuno cade), richiama in base i mezzi
   // superati più vecchi, al massimo AI_RECALL alla volta, e li smonta al punto di raduno (role 'home').
   const best = bestTier(o);
-  const atCap = armyN >= AI_ARMY && designTier(army.reduce((a, u) => u.id < a.id ? u : a).d) < best;
+  const atCap = !guard && armyN >= AI_ARMY && designTier(army.reduce((a, u) => u.id < a.id ? u : a).d) < best;
   const renew = atCap && def.length > 0;
   for (const u of army) if (u.role === 'home' && u.order.t === 'idle') {
     if (Math.hypot(u.x - rally[0], u.y - rally[1]) < 4 * TILE) { u.dead = true; idx.delete(u.id); }
@@ -184,15 +263,18 @@ export function aiTick() {
     const old = army.filter(u => u.role === 'atk' && designTier(u.d) < best).sort((a, b) => a.id - b.id).slice(0, Math.max(0, AI_RECALL - home));
     for (const u of old) { u.role = 'home'; cmdMove([u], rally[0], rally[1], false); }
   }
-  if ((S.time >= ai.nextAttack && def.length >= ai.waveSize) || renew) {
-    const tg = playerTarget(base.x * TILE, base.y * TILE);
+  // Il giocatore guidato dall'IA attacca solo se i difensori valgono (in gasolio) almeno AI_PLAYER.edge volte
+  // l'esercito nemico più metà delle sue difese fisse; al limite di mezzi attacca comunque.
+  const strongEnough = o === E || armyN >= AI_ARMY || worth(def) >= (D.edge ?? 1.2) * foeWorth(foe);
+  if (waves === 'base' && !guard && ((S.time >= ai.nextAttack && def.length >= ai.waveSize && strongEnough) || renew)) {
+    const tg = foeTarget(foe, base.x * TILE, base.y * TILE);
     if (tg) {
       def.forEach(u => { u.role = 'atk'; });
       cmdMove(def, tg.x, tg.y, true);
-      ai.wave++; ai.waveSize = Math.min(D.wmax, D.w0 + ai.wave * 2); ai.nextAttack = S.time + D.gap;
+      ai.wave++; ai.waveSize = Math.min(D.wmax, D.w0 + ai.wave * (D.wstep ?? 2)); ai.nextAttack = S.time + D.gap;
       // L'avviso solo per una colonna vera: i pochi mezzi nuovi mandati avanti dal rinnovo non lo ripetono di continuo.
-      if (def.length >= D.w0) emit('toast', { text: 'Intercettazione radio: una colonna nemica si muove verso di te.', kind: 'warn' });
+      if (o === E && def.length >= D.w0) emit('toast', { text: 'Intercettazione radio: una colonna nemica si muove verso di te.', kind: 'warn' });
     }
   }
-  for (const u of army) if (u.role === 'atk' && u.order.t === 'idle') { const tg = playerTarget(u.x, u.y); if (tg) cmdMove([u], tg.x, tg.y, true); }
+  for (const u of army) if (u.role === 'atk' && u.order.t === 'idle') { const tg = foeTarget(foe, u.x, u.y); if (tg) cmdMove([u], tg.x, tg.y, true); }
 }

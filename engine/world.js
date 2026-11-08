@@ -1,8 +1,9 @@
 // Stato della partita, entità, visibilità ed eventi verso il client.
 // Le variabili esportate con `let` sono binding "vivi": chi le importa legge sempre il valore attuale,
 // ma solo questo modulo le riassegna.
-import { TILE, MW, MH, N, P, E, B0, STRUCTS, CHASSIS, PROPS, WEAPONS, DIFF, BUILDER, TECH_BY, TOWER_MG, TOWER_CN, TOWER_CN75 } from './data.js';
-import { genMap } from './map.js';
+import { TILE, MW, MH, N, P, E, B0, STRUCTS, CHASSIS, PROPS, WEAPONS, DIFF, BUILDER, TECH_BY, TOWER_MG, TOWER_CN, TOWER_CN75, DEFAULT_DESIGNS, missionOf } from './data.js';
+import { genMap, missionMap } from './map.js';
+import { setupMission } from './mission.js';
 import { ftile } from './util.js';
 
 export let S = null;
@@ -21,7 +22,12 @@ export const proj = [];
    unit {owner, id, x, y}: una fabbrica o il comando consegnano un mezzo (anche un geniere).
    built {owner, id, type}: un edificio è finito (non per quelli che nascono già pronti, come il comando iniziale).
    research {owner, id}: una ricerca è completata (id della ricerca in TECH).
-   placed {owner, id, type}: un cantiere è stato piazzato (solo se il piazzamento riesce). */
+   placed {owner, id, type}: un cantiere è stato piazzato (solo se il piazzamento riesce).
+   objective {type, progress, target, text, done}: l'avanzamento dell'obiettivo della missione è cambiato (solo in
+   campagna, al più due volte al secondo).
+   end {won, reason}: fine partita; reason: 'objective' (obiettivo della missione raggiunto), 'destroyed' (un lato ha
+   perso comando, fabbriche e genieri: la vittoria in schermaglia e ogni sconfitta), 'time' (tempo della missione
+   scaduto). */
 const listeners = new Set();
 export function onEvent(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 export function emit(type, data = {}) { for (const f of listeners) f(type, data); }
@@ -85,7 +91,17 @@ export function armorOf(e) {
 }
 
 /* ---------- partita ---------- */
-export function newGame(diff, seed) {
+// newGame(diff, seed): schermaglia. newGame(diff, seed, opts) con opts facoltativo:
+//   mission: indice (0–7) o id di una missione della campagna (MISSIONS); il seme della mappa resta `seed`;
+//   tech: ricerche già completate dal giocatore ({id: true}), portate dalla campagna;
+//   designs: progetti salvati dal giocatore;
+//   autoplay: true = anche il lato del giocatore è guidato dall'IA (simulazioni).
+// Stato in più: S.mission (id della missione o null), S.objective, S.maxTier (livello massimo del giocatore, null in
+// schermaglia), S.ecfg (configurazione del nemico in missione), S.mapOpts (ritocchi della mappa).
+// Con opts.tech o opts.designs ma senza missione è una schermaglia con quelle ricerche e quei progetti.
+export function newGame(diff, seed, opts) {
+  const M = opts && opts.mission != null ? missionOf(opts.mission) : null;
+  if (opts && opts.mission != null && !M) throw new Error(`Missione sconosciuta: ${opts.mission}`);
   S = {
     seed, diff, time: 0, nextId: 1, ents: [], res: [600, 600], tech: [{}, {}],
     designs: [{ c: 'L', p: 'W', w: 'MG' }],
@@ -94,19 +110,34 @@ export function newGame(diff, seed) {
     timers: { fog: 0, ai: 0, end: 0 }, lastWarn: -99,
     phase: 'play', explored: null,
   };
+  if (opts) {
+    if (opts.tech) for (const id in opts.tech) if (opts.tech[id] && TECH_BY[id]) S.tech[P][id] = true;
+    if (Array.isArray(opts.designs) && opts.designs.length) S.designs = opts.designs.filter(validDesign).map(d => ({ c: d.c, p: d.p, w: d.w }));
+    if (!S.designs.length) S.designs = DEFAULT_DESIGNS.map(d => ({ ...d }));
+    if (opts.autoplay) S.autoplay = true;
+  }
+  S.mission = M ? M.id : null; S.objective = null; S.maxTier = M ? M.maxTier : null;
+  if (M) S.mapOpts = M.map || {};
   setupWorld();
-  for (const o of [P, E]) {
-    const m = (x, y) => o === P ? [x, y] : [MW - 1 - x, MH - 1 - y];
-    const [hx, hy] = m(B0.x, B0.y);
-    makeStruct('hq', o, hx - 1, hy - 1, true);
-    for (const [x, y] of [[8, 12], [10, 12]]) { const [a, b] = m(x, y); makeUnit(o, null, (a + 0.5) * TILE, (b + 0.5) * TILE); }
-    for (const [x, y] of [[12, 8], [12, 10]]) { const [a, b] = m(x, y); makeUnit(o, { c: 'L', p: 'W', w: 'MG' }, (a + 0.5) * TILE, (b + 0.5) * TILE); }
+  if (M) setupMission(M);
+  else {
+    for (const o of [P, E]) {
+      const m = (x, y) => o === P ? [x, y] : [MW - 1 - x, MH - 1 - y];
+      const [hx, hy] = m(B0.x, B0.y);
+      makeStruct('hq', o, hx - 1, hy - 1, true);
+      for (const [x, y] of [[8, 12], [10, 12]]) { const [a, b] = m(x, y); makeUnit(o, null, (a + 0.5) * TILE, (b + 0.5) * TILE); }
+      for (const [x, y] of [[12, 8], [12, 10]]) { const [a, b] = m(x, y); makeUnit(o, { c: 'L', p: 'W', w: 'MG' }, (a + 0.5) * TILE, (b + 0.5) * TILE); }
+    }
   }
   updateFog();
   return S;
 }
+export const validDesign = d => !!d && !!CHASSIS[d.c] && !!PROPS[d.p] && !!WEAPONS[d.w];
+// Configurazione dell'IA di un lato: in schermaglia quella della difficoltà, in missione quella del nemico della
+// missione (S.ecfg); per il giocatore guidato dall'IA i suoi tempi (AI_PLAYER, passati da ai.js).
+export function enemyCfg() { return S.ecfg || DIFF[S.diff]; }
 function setupWorld() {
-  const m = genMap(S.seed); terr = m.t; deposits = m.deps;
+  const m = S.mapOpts ? missionMap(S.seed, S.mapOpts) : genMap(S.seed); terr = m.t; deposits = m.deps;
   depIdx = new Int16Array(N).fill(-1); deposits.forEach((d, i) => { depIdx[d.x + d.y * MW] = i; });
   occ = new Int32Array(N); vis = new Uint8Array(N);
   explored = S.explored ? Uint8Array.from(S.explored) : new Uint8Array(N);

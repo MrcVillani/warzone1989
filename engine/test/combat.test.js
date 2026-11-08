@@ -174,7 +174,7 @@ test('distruggere comando, fabbriche e genieri nemici fa vincere la partita', ()
   run(1.1);
   ev.stop();
   assert.equal(S.phase, 'won');
-  assert.deepEqual(ev.of('end'), [{ won: true }]);
+  assert.deepEqual(ev.of('end'), [{ won: true, reason: 'destroyed' }]);
   assert.ok(ev.of('toast').some(t => t.text === 'Comando nemico distrutto.'));
   const t = S.time;
   step(0.05);

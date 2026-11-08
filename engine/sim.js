@@ -1,10 +1,11 @@
 // Aggiornamento di mezzi ed edifici e passo di simulazione.
-import { TILE, MW, P, E, DIRT, WATER, STRUCTS, CHASSIS, WEAPONS, TECH_BY, DIFF, BUNKER_W, PUMP_RATE } from './data.js';
-import { S, terr, emit, ent, makeUnit, canSee, updateFog, speedMul, towerWeapon, techSum } from './world.js';
+import { TILE, MW, P, E, DIRT, WATER, STRUCTS, CHASSIS, WEAPONS, TECH_BY, BUNKER_W, PUMP_RATE } from './data.js';
+import { S, terr, emit, ent, makeUnit, canSee, updateFog, speedMul, towerWeapon, techSum, enemyCfg } from './world.js';
 import { passable, nearestFree, pathTo, reachMap, reachableAdj } from './path.js';
 import { setIdle, cmdMove } from './orders.js';
 import { edist, nearestEnemy, aimFire, updProj } from './combat.js';
 import { aiTick } from './ai.js';
+import { missionTick } from './mission.js';
 import { turnToward, angDiff, ftile, gridRef } from './util.js';
 
 export function followPath(u, dt, sm = speedMul(u.owner)) {
@@ -177,7 +178,7 @@ function exitPoint(s) {
   const f = nearestFree(s.tx + Math.floor(s.w / 2), s.ty + s.h, false, 8);
   return f ? [(f[0] + 0.5) * TILE, (f[1] + 0.5) * TILE] : [s.x, s.y + s.h * TILE];
 }
-export function pumpRate(owner) { return PUMP_RATE * (1 + techSum(owner, 'pump')) * (owner === E ? DIFF[S.diff].inc : 1); }
+export function pumpRate(owner) { return PUMP_RATE * (1 + techSum(owner, 'pump')) * (owner === E ? enemyCfg().inc : 1); }
 export function updStruct(s, dt) {
   if (s.built < 1) return;
   if (s.type === 'pump') { S.res[s.owner] += pumpRate(s.owner) * dt; return; }
@@ -241,12 +242,14 @@ function separate() {
 }
 // Un lato è ancora in gioco finché ha un comando, una fabbrica o un geniere.
 export function alive(o) { return S.ents.some(e => !e.dead && e.owner === o && ((e.kind === 'struct' && (e.type === 'hq' || e.type === 'factory')) || (e.kind === 'unit' && e.builder))); }
+// Fine della schermaglia (in missione decide missionTick, con l'obiettivo).
 function checkEnd() {
-  if (S.phase !== 'play') return;
-  if (!alive(E)) { S.phase = 'won'; emit('end', { won: true }); }
-  else if (!alive(P)) { S.phase = 'lost'; emit('end', { won: false }); }
+  if (S.phase !== 'play' || S.objective) return;
+  if (!alive(E)) { S.phase = 'won'; emit('end', { won: true, reason: 'destroyed' }); }
+  else if (!alive(P)) { S.phase = 'lost'; emit('end', { won: false, reason: 'destroyed' }); }
 }
-// Un passo di simulazione di dt secondi.
+// Un passo di simulazione di dt secondi. Con S.autoplay anche il lato del giocatore è guidato dall'IA (aiTick(P)),
+// sfasato di un quarto di secondo rispetto a quella del nemico; in missione l'obiettivo si aggiorna ogni 0,5 s.
 export function step(dt) {
   if (!S || S.phase !== 'play') return;
   S.time += dt;
@@ -256,6 +259,8 @@ export function step(dt) {
   const T = S.timers;
   if ((T.fog -= dt) <= 0) { updateFog(); T.fog = 0.2; }
   if ((T.ai -= dt) <= 0) { aiTick(); T.ai = 0.5; }
+  if (S.autoplay) { T.aiP = (T.aiP ?? 0.25) - dt; if (T.aiP <= 0) { aiTick(P); T.aiP = 0.5; } }
+  if (S.objective) { T.obj = (T.obj ?? 0) - dt; if (T.obj <= 0) { T.obj = 0.5; missionTick(); } }
   if ((T.end -= dt) <= 0) { T.end = 1; checkEnd(); }
   if (S.ents.some(e => e.dead)) S.ents = S.ents.filter(e => !e.dead);
 }

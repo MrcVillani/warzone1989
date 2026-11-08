@@ -127,7 +127,7 @@ test('con il giocatore fermo l’IA si sviluppa, attacca e vince entro 15 minuti
       assert.equal(S.phase, 'lost', `${tag}: partita non persa dopo ${Math.round(S.time)} s`);
       assert.ok(S.time >= DIFF[diff].first, `${tag}: persa prima del primo attacco previsto`);
       assert.ok(S.ai.wave >= 1);
-      assert.deepEqual(ev.of('end'), [{ won: false }], `${tag}: evento end`);
+      assert.deepEqual(ev.of('end'), [{ won: false, reason: 'destroyed' }], `${tag}: evento end`);
       assert.ok(ev.of('toast').some(t => t.kind === 'warn' && /colonna nemica/.test(t.text)), `${tag}: manca l’avviso di attacco`);
       assert.ok(ev.of('toast').some(t => t.kind === 'bad'), `${tag}: manca l’avviso di contatto`);
       assert.ok(ev.of('fog').length > 0 && ev.of('fx').length > 0);

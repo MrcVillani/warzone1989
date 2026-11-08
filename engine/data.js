@@ -140,3 +140,135 @@ export const AI_TECH = [
   'chH', 'prT', 'wCN75', 'stBK', 'wAT', 'arm2', 'wRK', 'dCN2', 'pump3', 'twCN75', 'wMO',
   'chX', 'wCN105', 'prTR', 'arm3', 'dCN3', 'wHW', 'wMRL', 'dRK1', 'dAR1', 'mot2', 'dRK2', 'dAR2', 'stRP',
 ];
+
+// IA dalla parte del giocatore (S.autoplay, per le simulazioni di bilanciamento): tempi e dimensioni delle sue ondate;
+// edge: vantaggio minimo (valore dei suoi difensori diviso valore dell'esercito e delle difese nemiche) per attaccare.
+export const AI_PLAYER = { label: 'IA del giocatore', first: 210, gap: 95, w0: 6, wmax: 22, wstep: 2, edge: 1.2 };
+
+/* ---------- campagna «Operazione Valle Grigia» ----------
+   Ottobre 1989, Valle del Serra: la Brigata Aurora (giocatore) contro il Direttorio Ferreo (IA).
+   Ogni missione:
+   - objective: { type, ... } con type tra 'outpost' (pumps: pompe da avviare, poi distruggere tutti gli edifici
+     nemici), 'hold' (pumps attive per time secondi consecutivi), 'survive' (resistere time secondi),
+     'destroy' (comando, fabbriche e genieri nemici), 'survive_then_destroy' (time secondi, poi la base),
+     'destroy_all_bases' (tutte le basi nemiche);
+   - maxTier: livello massimo che il giocatore può ricercare in questa missione;
+   - seed: seme della mappa (provvisorio, da fissare con il bilanciamento); map: ritocchi alla mappa
+     (lake: lago al centro con due guadi; bases: 2 = seconda base nemica in ENEMY_BASE2);
+   - player: gasolio iniziale (res), genieri (builders), mezzi (units: progetti), edifici già pronti (structs);
+   - enemy: ricerche già completate (tech), livello massimo che può ricercare (maxTier), moltiplicatore di rendita
+     (inc) e di tempo di ricerca (rs), costruisce o no (build), ondate ('base' dalla sua base, 'edge' da fuori mappa,
+     'none'), prima ondata (first, s), intervallo (gap, s), dimensione iniziale (w0), massima (wmax) e crescita per
+     ondata (wstep), fabbriche massime che costruisce (factories, predefinito 2); bases: per ogni base comando (hq), fabbriche, laboratori, torrette, bunker, pompe, genieri e mezzi
+     iniziali (x, y facoltativi: centro della base, altrimenti B1).
+     I tempi e le dimensioni delle ondate sono per «Veterano»: le altre difficoltà li scalano come in DIFF.
+   - timeLimit (facoltativo, s): oltre questo tempo la missione è persa. */
+export const ENEMY_BASE2 = { x: MW - 11, y: 10 };
+const ET = n => AI_TECH.slice(0, n); // le prime n ricerche dell'IA, nel suo ordine (che rispetta requisiti e livelli)
+const LMG = { c: 'L', p: 'W', w: 'MG' }, MCN = { c: 'M', p: 'HT', w: 'CN' }, MHMG = { c: 'M', p: 'HT', w: 'HMG' }, HCN = { c: 'H', p: 'T', w: 'CN75' };
+export const MISSIONS = [
+  {
+    id: 'testa-di-ponte', name: 'Testa di ponte', seed: 1101, maxTier: 1, map: {},
+    brief: '12 ottobre 1989. La Brigata Aurora ha passato il Serra di notte e tiene una striscia di riva. ' +
+      'A sud-est il Direttorio Ferreo ha lasciato un avamposto piccolo, senza fabbriche ma difeso da torrette. ' +
+      'Metti in funzione quattro pompe per dare gasolio alla testa di ponte, poi spazza via l’avamposto.',
+    objective: { type: 'outpost', pumps: 4 },
+    player: { res: 600, builders: 2, units: [LMG, LMG, LMG], structs: [] },
+    enemy: {
+      tech: [], maxTier: 1, inc: 0.6, build: false, waves: 'none',
+      bases: [{ hq: 1, towers: 3, pumps: 2, units: [LMG, LMG, LMG] }],
+    },
+  },
+  {
+    id: 'pozzi-del-guado', name: 'I pozzi del guado', seed: 2202, maxTier: 2, map: {},
+    brief: 'I pozzi lungo il guado sono l’unica riserva di gasolio rimasta nella valle, e il Direttorio li vuole quanto noi. ' +
+      'La sua base è a poche ore di marcia e manderà le prime colonne presto. ' +
+      'Metti in funzione sei pompe e tienile attive per tre minuti di fila: ai convogli basta questo.',
+    objective: { type: 'hold', pumps: 6, time: 180 },
+    player: { res: 700, builders: 3, units: [LMG, LMG, LMG], structs: [] },
+    enemy: {
+      tech: ['pump2'], maxTier: 1, inc: 0.8, build: true, waves: 'base', first: 260, gap: 120, w0: 3, wmax: 8,
+      bases: [{ hq: 1, builders: 2, units: [LMG, LMG] }],
+    },
+  },
+  {
+    id: 'colonna-rifornimenti', name: 'La colonna dei rifornimenti', seed: 3303, maxTier: 2, map: {},
+    brief: 'Una nostra colonna di rifornimenti è ferma in fondo alla valle, con il ponte ancora da riparare. ' +
+      'Il Direttorio non ha basi in zona, ma i suoi reparti mobili entreranno dai bordi, uno dopo l’altro e sempre più numerosi. ' +
+      'Resisti dodici minuti, finché la colonna non è passata.',
+    objective: { type: 'survive', time: 720 },
+    player: { res: 900, builders: 3, units: [LMG, LMG, LMG, LMG], structs: ['factory'] },
+    enemy: {
+      tech: ET(7), maxTier: 2, build: false, waves: 'edge', first: 100, gap: 70, w0: 3, wmax: 14, wstep: 1,
+      bases: [],
+    },
+  },
+  {
+    id: 'passo-dei-larici', name: 'Il passo dei larici', seed: 4404, maxTier: 3, map: {},
+    brief: 'Oltre il passo dei larici il Direttorio ha messo in piedi la sua prima base vera, con fabbrica e laboratorio. ' +
+      'Da lì partono i mezzi che ci hanno colpito al guado. ' +
+      'Distruggi il comando, le fabbriche e i genieri nemici e apri la strada verso nord.',
+    objective: { type: 'destroy' },
+    player: { res: 800, builders: 3, units: [LMG, LMG, MCN, MCN], structs: [] },
+    enemy: {
+      tech: ET(8), maxTier: 2, inc: 1.0, build: true, waves: 'base', first: 260, gap: 110, w0: 4, wmax: 14,
+      bases: [{ hq: 1, factory: 1, towers: 1, pumps: 2, builders: 2, units: [MHMG, LMG, LMG] }],
+    },
+  },
+  {
+    id: 'diga-serra-alta', name: 'La diga di Serra Alta', seed: 5505, maxTier: 3, map: { lake: true },
+    brief: 'Il Direttorio ha aperto le chiuse della diga di Serra Alta e metà valle è finita sott’acqua. ' +
+      'La sua base è oltre il lago: si arriva solo dai due guadi stretti ai lati, oppure sull’acqua con gli hovercraft. ' +
+      'Scegli la strada e distruggi la base.',
+    objective: { type: 'destroy' },
+    player: { res: 900, builders: 3, units: [MCN, MCN, MHMG, MHMG], structs: [] },
+    enemy: {
+      tech: ET(14), maxTier: 3, inc: 1.0, build: true, waves: 'base', first: 280, gap: 110, w0: 5, wmax: 16,
+      bases: [{ hq: 1, factory: 1, lab: 1, towers: 2, pumps: 2, builders: 2, units: [MCN, MCN, MHMG] }],
+    },
+  },
+  {
+    id: 'due-fuochi', name: 'Due fuochi', seed: 6606, maxTier: 3, map: { bases: 2 },
+    brief: 'Il nemico ha diviso le forze in due basi, una a est e una a sud-est, e prova a stringerci in mezzo. ' +
+      'Se ne resta in piedi una, l’altra rinasce in pochi giorni. ' +
+      'Distruggi tutte e due le basi del Direttorio.',
+    objective: { type: 'destroy_all_bases' },
+    player: { res: 1000, builders: 3, units: [MCN, MCN, MCN, MHMG, MHMG, LMG], structs: ['factory'] },
+    enemy: {
+      tech: ET(16), maxTier: 3, inc: 1.0, build: true, waves: 'base', first: 260, gap: 110, w0: 5, wmax: 16,
+      bases: [
+        { hq: 1, factory: 1, lab: 1, towers: 2, pumps: 2, builders: 2, units: [MCN, MCN, MHMG] },
+        { x: ENEMY_BASE2.x, y: ENEMY_BASE2.y, hq: 1, factory: 1, towers: 2, pumps: 2, builders: 1, units: [MCN, MHMG] },
+      ],
+    },
+  },
+  {
+    id: 'contrattacco', name: 'Contrattacco', seed: 7707, maxTier: 4, map: {},
+    brief: 'Il Direttorio ha richiamato le riserve e lancia tutto contro la nostra linea. ' +
+      'Per otto minuti dovrai solo tenere: i rinforzi non arriveranno prima. ' +
+      'Poi passa al contrattacco e distruggi la base da cui partono le colonne.',
+    objective: { type: 'survive_then_destroy', time: 480 },
+    player: { res: 1200, builders: 3, units: [HCN, MCN, MCN, MCN, MHMG, MHMG], structs: ['factory', 'lab', 'tower', 'tower'] },
+    enemy: {
+      tech: ET(20), maxTier: 4, inc: 1.0, build: true, waves: 'base', first: 130, gap: 80, w0: 5, wmax: 14,
+      bases: [{ hq: 1, factory: 2, lab: 1, towers: 3, bunkers: 1, pumps: 3, builders: 3, units: [HCN, MCN, MCN, MHMG] }],
+    },
+  },
+  {
+    id: 'comando-direttorio', name: 'Il comando del Direttorio', seed: 8808, maxTier: 4, map: {},
+    brief: '31 ottobre 1989. Il comando del Direttorio Ferreo è in fondo alla valle, dietro bunker e torrette. ' +
+      'Ha i mezzi migliori e una rendita che sembra non finire mai. ' +
+      'È l’assalto finale: distruggi comando, fabbriche e genieri, e la Valle del Serra è libera.',
+    objective: { type: 'destroy' },
+    player: { res: 1400, builders: 3, units: [HCN, HCN, MCN, MCN, MHMG, MHMG], structs: ['factory', 'lab'] },
+    enemy: {
+      tech: ET(26), maxTier: 4, inc: 1.3, build: true, waves: 'base', first: 240, gap: 100, w0: 6, wmax: 20,
+      bases: [{ hq: 1, factory: 2, lab: 2, towers: 3, bunkers: 2, pumps: 4, builders: 3, units: [HCN, HCN, MCN, MCN, MHMG] }],
+    },
+  },
+];
+export const MISSION_BY = Object.fromEntries(MISSIONS.map(m => [m.id, m]));
+// Missione da indice (0–7) o da id; undefined se non esiste.
+export function missionOf(m) { return typeof m === 'number' ? MISSIONS[m] : MISSION_BY[m]; }
+// Progetto di partenza dei nuovi giocatori (e della campagna).
+export const DEFAULT_DESIGNS = [{ c: 'L', p: 'W', w: 'MG' }];

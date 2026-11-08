@@ -1,6 +1,6 @@
 // Ordini e azioni: li usano sia il giocatore (dal client) sia l'IA nemica.
-import { TILE, MW, MH, P, E, GROUND, DIRT, STRUCTS, TECH, TECH_BY, TIERS, TIER_GATE, DIFF, UNIT_CAP, BUILDER, WEAPONS } from './data.js';
-import { S, terr, occ, depIdx, explored, idx, emit, makeStruct, markOcc, dStats } from './world.js';
+import { TILE, MW, MH, P, E, GROUND, DIRT, STRUCTS, TECH, TECH_BY, TIERS, TIER_GATE, UNIT_CAP, BUILDER, WEAPONS } from './data.js';
+import { S, terr, occ, depIdx, explored, idx, emit, makeStruct, markOcc, dStats, enemyCfg } from './world.js';
 import { pathTo, formation } from './path.js';
 import { ftile } from './util.js';
 
@@ -89,14 +89,22 @@ export function cancelQueued(s, i) {
 export function researching(owner, id) { return S.ents.some(e => e.owner === owner && e.type === 'lab' && !e.dead && e.rs && e.rs.id === id); }
 // Ricerche completate da un lato a un certo livello.
 export function tierDone(owner, tier) { let n = 0; for (const t of TECH) if (t.tier === tier && S.tech[owner][t.id]) n++; return n; }
-// Il livello è aperto: il I sempre, gli altri con almeno TIER_GATE ricerche completate del livello precedente.
-export function tierAvail(owner, tier) { return tier <= 1 || tierDone(owner, tier - 1) >= TIER_GATE; }
+// Livello massimo ricercabile da un lato: in missione S.maxTier per il giocatore e S.ecfg.maxTier per il nemico;
+// in schermaglia 4 (tutti). Le ricerche già completate oltre il limite (portate dalla campagna) restano valide.
+export function tierCap(owner) {
+  if (!S) return 4;
+  const v = owner === P ? S.maxTier : S.ecfg && S.ecfg.maxTier;
+  return v == null ? 4 : v;
+}
+// Il livello è aperto: entro tierCap; il I sempre, gli altri con almeno TIER_GATE ricerche completate del livello precedente.
+export function tierAvail(owner, tier) { return tier <= tierCap(owner) && (tier <= 1 || tierDone(owner, tier - 1) >= TIER_GATE); }
 // Perché una ricerca non si può avviare (frase breve), oppure null se si può (gasolio e laboratorio a parte).
 export function techBlockReason(owner, id) {
   const T = TECH_BY[id];
   if (!T) return 'Ricerca sconosciuta.';
   if (S.tech[owner][id]) return 'Già completata.';
   if (researching(owner, id)) return 'In corso.';
+  if (T.tier > tierCap(owner)) return `Non disponibile in questa missione (livello max ${TIERS[tierCap(owner) - 1]}).`;
   if (!tierAvail(owner, T.tier)) return `Servono ${TIER_GATE} ricerche di livello ${TIERS[T.tier - 2]} (${tierDone(owner, T.tier - 1)}/${TIER_GATE}).`;
   const miss = T.req.filter(r => !S.tech[owner][r]);
   if (miss.length) return `Serve ${miss.map(r => TECH_BY[r].name).join(', ')}.`;
@@ -108,6 +116,6 @@ export function startResearch(owner, lab, id) {
   if (!lab || lab.dead || lab.type !== 'lab' || lab.owner !== owner || lab.built < 1 || lab.rs) return false;
   if (!techAvail(owner, id) || S.res[owner] < T.cost) return false;
   S.res[owner] -= T.cost;
-  lab.rs = { id, t: 0, total: T.time * (owner === E ? DIFF[S.diff].rs : 1) };
+  lab.rs = { id, t: 0, total: T.time * (owner === E ? enemyCfg().rs : 1) };
   return true;
 }
