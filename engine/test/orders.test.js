@@ -13,6 +13,8 @@ const builtFactory = owner => {
   const [x, y] = owner === P ? findSpot(P, 'factory', B0.x + 4, B0.y + 2) : findSpot(E, 'factory', B1.x - 6, B1.y - 3);
   return makeStruct('factory', owner, x, y, true);
 };
+// Apre il livello II per un lato: due ricerche di livello I completate (cancello dei livelli, TIER_GATE).
+const openTier2 = owner => { S.tech[owner].dMG1 = true; S.tech[owner].mot1 = true; };
 const builtLab = owner => {
   const [x, y] = owner === P ? findSpot(P, 'lab', B0.x - 1, B0.y + 4) : findSpot(E, 'lab', B1.x, B1.y - 5);
   return makeStruct('lab', owner, x, y, true);
@@ -175,6 +177,13 @@ test('cancelQueued rimborsa e toglie dalla coda', () => {
 test('startResearch rispetta requisiti, costo e ricerche già in corso', () => {
   newGame('normale', 12345);
   const lab = builtLab(P), lab2 = builtLab(P);
+  // wCN è di livello II: con una sola ricerca di livello I resta bloccata, con due si può avviare.
+  S.tech[P].dMG1 = true;
+  assert.equal(techAvail(P, 'wCN'), false, 'livello II chiuso con una sola ricerca di livello I');
+  assert.equal(startResearch(P, lab, 'wCN'), false);
+  assert.equal(S.res[P], 600);
+  openTier2(P);
+  assert.equal(techAvail(P, 'wCN'), true);
   assert.equal(techAvail(P, 'twCN'), false, 'twCN richiede wCN');
   assert.equal(startResearch(P, lab, 'twCN'), false);
   assert.equal(S.res[P], 600);
@@ -208,6 +217,8 @@ test('startResearch rifiuta un laboratorio non valido senza cambiare gasolio e r
   S.res[P] = 600;
   const dead = builtLab(P); dead.dead = true;
   const busy = builtLab(P); busy.rs = { id: 'chM', t: 3, total: 40 };
+  // Il livello II è aperto per entrambi i lati: i rifiuti dipendono solo dal laboratorio.
+  openTier2(P); openTier2(E);
   const cases = [
     ['laboratorio mancante (null)', null],
     ['laboratorio mancante (undefined)', undefined],
@@ -244,6 +255,7 @@ test('startResearch: un laboratorio finito dopo la costruzione può ricercare', 
   const [x, y] = findSpot(P, 'lab', B0.x - 1, B0.y + 4);
   const lab = placeStruct(P, 'lab', x, y);
   S.res[P] = 600;
+  openTier2(P);
   assert.equal(startResearch(P, lab, 'wCN'), false);
   lab.built = 1;
   assert.equal(startResearch(P, lab, 'wCN'), true);
@@ -253,6 +265,8 @@ test('startResearch: il nemico ricerca più in fretta salendo di difficoltà', (
   for (const diff of Object.keys(DIFF)) {
     newGame(diff, 12345);
     const lab = builtLab(E);
+    assert.equal(startResearch(E, lab, 'chM'), false, `${diff}: livello II ancora chiuso`);
+    openTier2(E);
     assert.equal(startResearch(E, lab, 'chM'), true);
     assert.ok(Math.abs(lab.rs.total - TECH_BY.chM.time * DIFF[diff].rs) < 1e-9, diff);
   }

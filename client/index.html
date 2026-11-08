@@ -18,19 +18,26 @@
       <div class="ro"><span class="k">Tempo</span><span class="v" id="roTime">00:00</span></div>
     </div>
     <div class="barbtns">
+      <button class="btn" id="btnSound" aria-pressed="true" title="Suono">Suono</button>
       <button class="btn" id="btnSpeed" title="Velocità di gioco">1×</button>
       <button class="btn" id="btnPause">Pausa</button>
       <button class="btn" id="btnHelp">Comandi</button>
+      <button class="btn" id="btnExit" title="Esci dalla partita e torna al menu">Menu</button>
     </div>
   </header>
   <div id="body">
     <main id="stage">
       <canvas id="view" aria-label="Mappa tattica"></canvas>
-      <div id="touchbar">
-        <button class="btn touch-only" id="btnMode">Sposta mappa</button>
-        <button class="btn" id="btnAmove" title="Attacca-muovi (A)">Attacca-muovi</button>
-        <button class="btn" id="btnStop" title="Ferma (S)">Ferma</button>
-        <button class="btn touch-only" id="btnDesel">Deseleziona</button>
+      <div id="objective" hidden role="status" aria-live="polite">
+        <div class="oh"><span class="ok" id="objKind">Obiettivo</span><span class="ot" id="objText"></span></div>
+        <div class="obar"><i id="objBar"></i></div>
+      </div>
+      <div id="touchbar" role="toolbar" aria-label="Ordini rapidi">
+        <button class="btn touch-only" id="btnMode" aria-label="Sposta mappa" title="Sposta mappa"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 1.5v13M1.5 8h13M8 1.5 5.8 3.7M8 1.5l2.2 2.2M8 14.5l-2.2-2.2M8 14.5l2.2-2.2M1.5 8l2.2-2.2M1.5 8l2.2 2.2M14.5 8l-2.2-2.2M14.5 8l-2.2 2.2"/></svg><span>Mappa</span></button>
+        <button class="btn" id="btnAmove" aria-label="Attacca-muovi" title="Attacca-muovi (A)"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="5"/><path d="M8 1v4M8 11v4M1 8h4M11 8h4"/></svg><span>Attacca</span></button>
+        <button class="btn" id="btnStop" aria-label="Ferma" title="Ferma (S)"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="3.5" y="3.5" width="9" height="9" class="fill"/></svg><span>Ferma</span></button>
+        <button class="btn" id="btnDesel" aria-label="Deseleziona" title="Deseleziona (Esc)"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="2" y="2" width="12" height="12" stroke-dasharray="2.4 1.6"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5"/></svg><span>Nessuno</span></button>
+        <button class="btn" id="btnArmy" aria-label="Tutto l’esercito" title="Tutto l’esercito: seleziona tutti i mezzi armati"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3 6.5 8 3l5 3.5M3 10 8 6.5l5 3.5M3 13.5 8 10l5 3.5"/></svg><span>Esercito</span></button>
       </div>
       <div id="toasts" aria-live="polite"></div>
     </main>

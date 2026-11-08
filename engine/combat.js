@@ -1,6 +1,7 @@
 // Distanze, bersagli, danni, colpi e proiettili.
-import { TILE, P, E, STRUCTS } from './data.js';
-import { S, idx, proj, emit, ent, armorOf, canSee, markOcc } from './world.js';
+import { TILE, P, E, STRUCTS, WEAPONS } from './data.js';
+import { S, idx, proj, emit, ent, armorOf, canSee, markOcc, dmgMul } from './world.js';
+import { noteKill } from './mission.js';
 import { angDiff, turnToward, ftile, gridRef } from './util.js';
 
 // Distanza dal bordo del bersaglio: rettangolo per gli edifici, cerchio per i mezzi.
@@ -29,15 +30,27 @@ export function nearestEnemy(u, R, minR) {
 // La corazza toglie danno, ma ogni colpo fa almeno il 35% del suo valore.
 export function damageAfterArmor(dmg, armor) { return Math.max(dmg * 0.35, dmg - armor); }
 
-export function damage(t, dmg, owner) {
+// Danno di un colpo dell'arma w (facoltativa) sul bersaglio, con le regole speciali dell'arma:
+// armorK (quanto conta la corazza), vsStruct (moltiplicatore contro gli edifici), antiArmor (+frazione per punto di corazza).
+export function hitDamage(t, dmg, w) {
+  let a = armorOf(t);
+  if (w) {
+    if (w.armorK != null) a *= w.armorK;
+    if (w.vsStruct && t.kind === 'struct') dmg *= w.vsStruct;
+    if (w.antiArmor) dmg *= 1 + w.antiArmor * armorOf(t);
+  }
+  return damageAfterArmor(dmg, a);
+}
+export function damage(t, dmg, owner, w) {
   if (!t || t.dead) return;
-  t.hp -= damageAfterArmor(dmg, armorOf(t));
+  t.hp -= hitDamage(t, dmg, w);
   if (t.owner === P && S.time - S.lastWarn > 12) {
     S.lastWarn = S.time;
     emit('toast', { text: `Contatto nemico nel settore ${gridRef(ftile(t.x), ftile(t.y))}.`, kind: 'bad' });
     emit('ping', { x: t.x, y: t.y });
   }
   if (t.owner === E) S.ai.alert = { x: t.x, y: t.y, t: S.time };
+  else if (S.aiP) S.aiP.alert = { x: t.x, y: t.y, t: S.time };
   if (t.hp <= 0) kill(t, owner);
 }
 export function kill(e, by) {
@@ -55,34 +68,48 @@ export function kill(e, by) {
     emit('fx', { k: 'scorch', x: e.x, y: e.y, r: 13 });
   }
   if (by != null && by !== e.owner) S.stats.kills[by]++;
+  if (S.objective) noteKill(e);
   S.stats.lost[e.owner]++;
 }
-export function explodeAt(x, y, r, dmg, owner, size) {
+// Danno ad area ai soli nemici: pieno al centro, metà sul bordo del raggio r (caselle).
+export function areaDamage(x, y, r, dmg, owner, w) {
   const R = r * TILE;
   for (const e of S.ents) {
     if (e.dead || e.owner === owner) continue;
     if (Math.abs(e.x - x) > R + 100 || Math.abs(e.y - y) > R + 100) continue;
     const d = edist({ x, y }, e); if (d > R) continue;
-    damage(e, dmg * (1 - 0.5 * d / R), owner);
+    damage(e, dmg * (1 - 0.5 * d / R), owner, w);
   }
+}
+export function explodeAt(x, y, r, dmg, owner, size, w) {
+  areaDamage(x, y, r, dmg, owner, w);
   emit('fx', { k: 'boom', x, y, size, owner, kind: 'shot' });
 }
+// Colpo dell'arma w verso il bersaglio t. Il danno include le ricerche di danno del tiratore al momento dello sparo;
+// i proiettili portano wk (chiave dell'arma) per le regole speciali all'impatto.
 export function fire(x, y, ang, t, w, owner, len) {
   const mx = x + Math.cos(ang) * len, my = y + Math.sin(ang) * len;
-  emit('fx', { k: 'flash', x: mx, y: my, s: w.proj === 'tracer' ? 3 : 6, w: w.key, owner });
+  const dmg = w.dmg * dmgMul(owner, w.family), wk = w.key;
+  emit('fx', { k: 'flash', x: mx, y: my, s: w.proj === 'tracer' ? 3 : w.proj === 'flame' ? 4 : 6, w: wk, owner });
   if (w.proj === 'tracer') {
     emit('fx', { k: 'tracer', x1: mx, y1: my, x2: t.x + (Math.random() - 0.5) * 10, y2: t.y + (Math.random() - 0.5) * 10 });
-    damage(t, w.dmg, owner);
-  } else if (w.proj === 'shell') {
-    proj.push({ k: 'shell', x: mx, y: my, tid: t.id, tx: t.x, ty: t.y, spd: w.speed, dmg: w.dmg, splash: 0, owner, a: ang });
+    damage(t, dmg, owner, w);
+  } else if (w.proj === 'flame') {
+    emit('fx', { k: 'flame', x1: mx, y1: my, x2: t.x, y2: t.y, r: w.splash * TILE, owner });
+    areaDamage(t.x, t.y, w.splash, dmg, owner, w);
+  } else if (w.proj === 'shell' || w.proj === 'missile') {
+    proj.push({ k: w.proj, x: mx, y: my, tid: t.id, tx: t.x, ty: t.y, spd: w.speed, dmg, splash: 0, owner, a: ang, wk });
   } else if (w.proj === 'rocket') {
-    for (const side of [-1, 1]) {
+    const n = w.salvo || 2, spread = n > 2 ? 26 : 14;
+    for (let i = 0; i < n; i++) {
+      const side = n === 1 ? 0 : (i / (n - 1)) * 2 - 1;
       const ox = Math.cos(ang + Math.PI / 2) * 3 * side, oy = Math.sin(ang + Math.PI / 2) * 3 * side;
-      proj.push({ k: 'rocket', x: mx + ox, y: my + oy, tid: t.id, tx: t.x, ty: t.y, ox: (Math.random() - 0.5) * 14, oy: (Math.random() - 0.5) * 14, spd: w.speed * (0.92 + Math.random() * 0.16), dmg: w.dmg / 2, splash: w.splash, owner, a: ang });
+      proj.push({ k: 'rocket', x: mx + ox, y: my + oy, tid: t.id, tx: t.x, ty: t.y, ox: (Math.random() - 0.5) * spread, oy: (Math.random() - 0.5) * spread, spd: w.speed * (0.92 + Math.random() * 0.16), dmg: dmg / n, splash: w.splash, owner, a: ang, wk });
     }
   } else if (w.proj === 'mortar') {
-    const tx = t.x + (Math.random() - 0.5) * 22, ty = t.y + (Math.random() - 0.5) * 22, d = Math.hypot(tx - mx, ty - my);
-    proj.push({ k: 'mortar', sx: mx, sy: my, x: mx, y: my, tx, ty, t: 0, dur: 0.7 + d / 300, dmg: w.dmg, splash: w.splash, owner, h: 0 });
+    const sc = w.splash > 1.5 ? 34 : 22;
+    const tx = t.x + (Math.random() - 0.5) * sc, ty = t.y + (Math.random() - 0.5) * sc, d = Math.hypot(tx - mx, ty - my);
+    proj.push({ k: 'mortar', sx: mx, sy: my, x: mx, y: my, tx, ty, t: 0, dur: 0.7 + d / 300, dmg, splash: w.splash, owner, h: 0, wk, bs: w.splash > 1.5 ? 1.6 : 1.1 });
   }
 }
 export function aimFire(e, t, w, dt, len) {
@@ -98,7 +125,7 @@ export function updProj(dt) {
     if (p.k === 'mortar') {
       p.t += dt; const k = Math.min(1, p.t / p.dur);
       p.x = p.sx + (p.tx - p.sx) * k; p.y = p.sy + (p.ty - p.sy) * k; p.h = Math.sin(Math.PI * k) * (24 + p.dur * 46);
-      if (k >= 1) { explodeAt(p.tx, p.ty, p.splash, p.dmg, p.owner, 1.1); p.done = true; }
+      if (k >= 1) { explodeAt(p.tx, p.ty, p.splash, p.dmg, p.owner, p.bs || 1.1, WEAPONS[p.wk]); p.done = true; }
       continue;
     }
     const t = ent(p.tid);
@@ -107,12 +134,13 @@ export function updProj(dt) {
     p.a = Math.atan2(dy, dx);
     if (d <= st + 3) {
       p.done = true;
-      if (p.splash) explodeAt(p.tx, p.ty, p.splash, p.dmg, p.owner, 0.55);
-      else { if (t && !t.dead) damage(t, p.dmg, p.owner); emit('fx', { k: 'hit', x: p.tx, y: p.ty }); }
+      const w = WEAPONS[p.wk];
+      if (p.splash) explodeAt(p.tx, p.ty, p.splash, p.dmg, p.owner, 0.55, w);
+      else { if (t && !t.dead) damage(t, p.dmg, p.owner, w); emit('fx', { k: 'hit', x: p.tx, y: p.ty }); }
       continue;
     }
     p.x += dx / d * st; p.y += dy / d * st;
-    if (p.k === 'rocket') emit('fx', { k: 'trail', x: p.x, y: p.y });
+    if (p.k === 'rocket' || p.k === 'missile') emit('fx', { k: 'trail', x: p.x, y: p.y });
   }
   let j = 0; for (const p of proj) if (!p.done) proj[j++] = p; proj.length = j;
 }

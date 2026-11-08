@@ -1,13 +1,14 @@
 // Aggiornamento di mezzi ed edifici e passo di simulazione.
-import { TILE, MW, P, E, DIRT, WATER, STRUCTS, CHASSIS, WEAPONS, TECH_BY, DIFF, TOWER_MG, TOWER_CN, PUMP_RATE } from './data.js';
-import { S, terr, emit, ent, makeUnit, canSee, updateFog } from './world.js';
+import { TILE, MW, P, E, DIRT, WATER, STRUCTS, CHASSIS, WEAPONS, TECH_BY, BUNKER_W, PUMP_RATE } from './data.js';
+import { S, terr, emit, ent, makeUnit, canSee, updateFog, speedMul, towerWeapon, techSum, enemyCfg } from './world.js';
 import { passable, nearestFree, pathTo, reachMap, reachableAdj } from './path.js';
 import { setIdle, cmdMove } from './orders.js';
 import { edist, nearestEnemy, aimFire, updProj } from './combat.js';
 import { aiTick } from './ai.js';
+import { missionTick } from './mission.js';
 import { turnToward, angDiff, ftile, gridRef } from './util.js';
 
-export function followPath(u, dt) {
+export function followPath(u, dt, sm = speedMul(u.owner)) {
   if (!u.path || u.pi >= u.path.length) { u.path = null; return true; }
   const n = u.path[u.pi];
   if (!passable(n[0], n[1], u.water)) {
@@ -21,7 +22,7 @@ export function followPath(u, dt) {
   u.ang = turnToward(u.ang, a, 4.5 * dt);
   const al = Math.cos(angDiff(u.ang, a));
   const onDirt = terr[ftile(u.x) + ftile(u.y) * MW] === DIRT;
-  const sp = u.speed * Math.max(0.25, al) * (onDirt ? 0.92 : 1);
+  const sp = u.speed * sm * Math.max(0.25, al) * (onDirt ? 0.92 : 1);
   const st = Math.min(d, sp * dt);
   u.x += dx / d * st; u.y += dy / d * st; u.moving = true;
   if (u.water && terr[ftile(u.x) + ftile(u.y) * MW] === WATER && Math.random() < dt * 14) emit('fx', { k: 'spray', x: u.x - Math.cos(u.ang) * 10, y: u.y - Math.sin(u.ang) * 10 });
@@ -92,6 +93,7 @@ export function updUnit(u, dt) {
     if (f) { const px = (f[0] + 0.5) * TILE, py = (f[1] + 0.5) * TILE, dx = px - u.x, dy = py - u.y, d = Math.hypot(dx, dy) || 1, st = Math.min(d, 90 * dt); u.x += dx / d * st; u.y += dy / d * st; }
     return;
   }
+  if (w && w.heal) { repairTick(u, w, dt); return; }
   let t = null;
   if (w) {
     t = ent(u.tgt) || null;
@@ -139,11 +141,44 @@ export function updUnit(u, dt) {
     } else u.tang = turnToward(u.tang, u.ang, 2 * dt);
   }
 }
+// Mezzo con modulo riparazione: non cerca nemici e non insegue. Ripara il mezzo alleato più danneggiato (in
+// proporzione) entro la gittata del modulo; con l'ordine «avanza» si ferma finché ha qualcuno da riparare, così resta
+// con il gruppo che combatte. u.tgt = mezzo che sta riparando.
+function repairTick(u, w, dt) {
+  const R = w.range * TILE;
+  let t = ent(u.tgt);
+  // Solo un mezzo alleato può essere il bersaglio della riparazione (u.tgt può arrivare da un vecchio ordine o salvataggio).
+  if (t && (t === u || t.kind !== 'unit' || t.owner !== u.owner)) { t = null; u.tgt = 0; }
+  u.scan -= dt;
+  if (!t || t.dead || t.hp >= t.max || Math.hypot(t.x - u.x, t.y - u.y) > R + t.rad || u.scan <= 0) {
+    if (u.scan <= 0) u.scan = 0.3 + Math.random() * 0.1;
+    t = null; let best = 1;
+    for (const e of S.ents) {
+      if (e === u || e.dead || e.kind !== 'unit' || e.owner !== u.owner || e.hp >= e.max) continue;
+      if (Math.abs(e.x - u.x) > R + 20 || Math.abs(e.y - u.y) > R + 20 || Math.hypot(e.x - u.x, e.y - u.y) > R + e.rad) continue;
+      const k = e.hp / e.max; if (k < best) { best = k; t = e; }
+    }
+    u.tgt = t ? t.id : 0;
+  }
+  const o = u.order;
+  if (o.t === 'move') { if (followPath(u, dt)) setIdle(u); }
+  else if (o.t === 'amove') {
+    if (t) u.path = null;
+    else { if (!u.path) pathTo(u, o.x, o.y); if (followPath(u, dt)) setIdle(u); }
+  } else if (o.t === 'attack') setIdle(u);
+  else if (o.t === 'idle' && Math.hypot(u.x - u.gx, u.y - u.gy) > TILE * 1.2) { if (!u.path) pathTo(u, u.gx, u.gy); if (followPath(u, dt)) { u.gx = u.x; u.gy = u.y; } }
+  else if (o.t === 'idle') u.path = null;
+  if (t) {
+    t.hp = Math.min(t.max, t.hp + w.heal * dt);
+    u.tang = turnToward(u.tang, Math.atan2(t.y - u.y, t.x - u.x), 5 * dt);
+    if (u.cd <= 0) { u.cd = w.rof; emit('fx', { k: 'repair', x1: u.x, y1: u.y, x2: t.x, y2: t.y, owner: u.owner }); }
+  } else u.tang = turnToward(u.tang, u.ang, 2 * dt);
+}
 function exitPoint(s) {
   const f = nearestFree(s.tx + Math.floor(s.w / 2), s.ty + s.h, false, 8);
   return f ? [(f[0] + 0.5) * TILE, (f[1] + 0.5) * TILE] : [s.x, s.y + s.h * TILE];
 }
-export function pumpRate(owner) { return PUMP_RATE * (S.tech[owner].pump2 ? 1.5 : 1) * (owner === E ? DIFF[S.diff].inc : 1); }
+export function pumpRate(owner) { return PUMP_RATE * (1 + techSum(owner, 'pump')) * (owner === E ? enemyCfg().inc : 1); }
 export function updStruct(s, dt) {
   if (s.built < 1) return;
   if (s.type === 'pump') { S.res[s.owner] += pumpRate(s.owner) * dt; return; }
@@ -168,16 +203,16 @@ export function updStruct(s, dt) {
       if (s.owner === P) emit('toast', { text: `Ricerca completata: ${TECH_BY[id].name}.` });
     }
   }
-  if (s.type === 'tower') {
+  if (s.type === 'tower' || s.type === 'bunker') {
     if (s.cd > 0) s.cd -= dt;
-    const w = S.tech[s.owner].twCN ? TOWER_CN : TOWER_MG;
+    const w = s.type === 'bunker' ? BUNKER_W : towerWeapon(s.owner);
     let t = ent(s.tgt);
     s.scan -= dt;
     if (!t || t.dead || edist(s, t) > w.range * TILE || !canSee(s.owner, t)) {
       t = null; s.tgt = 0;
       if (s.scan <= 0) { s.scan = 0.3; t = nearestEnemy(s, w.range * TILE, 0); s.tgt = t ? t.id : 0; }
     }
-    if (t) aimFire(s, t, w, dt, 12);
+    if (t) aimFire(s, t, w, dt, s.type === 'bunker' ? 18 : 12);
   }
   if (s.type === 'depot') {
     const R = 3.5 * TILE;
@@ -207,12 +242,14 @@ function separate() {
 }
 // Un lato è ancora in gioco finché ha un comando, una fabbrica o un geniere.
 export function alive(o) { return S.ents.some(e => !e.dead && e.owner === o && ((e.kind === 'struct' && (e.type === 'hq' || e.type === 'factory')) || (e.kind === 'unit' && e.builder))); }
+// Fine della schermaglia (in missione decide missionTick, con l'obiettivo).
 function checkEnd() {
-  if (S.phase !== 'play') return;
-  if (!alive(E)) { S.phase = 'won'; emit('end', { won: true }); }
-  else if (!alive(P)) { S.phase = 'lost'; emit('end', { won: false }); }
+  if (S.phase !== 'play' || S.objective) return;
+  if (!alive(E)) { S.phase = 'won'; emit('end', { won: true, reason: 'destroyed' }); }
+  else if (!alive(P)) { S.phase = 'lost'; emit('end', { won: false, reason: 'destroyed' }); }
 }
-// Un passo di simulazione di dt secondi.
+// Un passo di simulazione di dt secondi. Con S.autoplay anche il lato del giocatore è guidato dall'IA (aiTick(P)),
+// sfasato di un quarto di secondo rispetto a quella del nemico; in missione l'obiettivo si aggiorna ogni 0,5 s.
 export function step(dt) {
   if (!S || S.phase !== 'play') return;
   S.time += dt;
@@ -222,6 +259,8 @@ export function step(dt) {
   const T = S.timers;
   if ((T.fog -= dt) <= 0) { updateFog(); T.fog = 0.2; }
   if ((T.ai -= dt) <= 0) { aiTick(); T.ai = 0.5; }
+  if (S.autoplay) { T.aiP = (T.aiP ?? 0.25) - dt; if (T.aiP <= 0) { aiTick(P); T.aiP = 0.5; } }
+  if (S.objective) { T.obj = (T.obj ?? 0) - dt; if (T.obj <= 0) { T.obj = 0.5; missionTick(); } }
   if ((T.end -= dt) <= 0) { T.end = 1; checkEnd(); }
   if (S.ents.some(e => e.dead)) S.ents = S.ents.filter(e => !e.dead);
 }

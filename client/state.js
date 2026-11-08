@@ -8,8 +8,17 @@ export const ui = {
   tab: 'build', placing: null, amove: false, mode: 'select', producer: 0,
   draft: { c: 'L', p: 'W', w: 'MG' }, key: '', paused: true, speed: 1, overlay: 'start',
   diff: 'normale', groups: {}, sel: [], lastGroup: null, lastGroupT: 0,
+  // resFold: livelli della scheda Ricerca aperti o chiusi dal giocatore (livello → true/false; se manca, default)
+  resFold: {},
+  // techBefore: ricerche della campagna all'avvio della missione in corso (per il rapporto: quelle nuove)
+  techBefore: [],
 };
 export const cam = { x: 0, y: 0, z: 1 };
 export const view = { dpr: 1, cw: 800, ch: 600 };
 export const hover = { x: 0, y: 0, in: false };
-export const fxs = { parts: [], fx: [], pings: [], boxSel: null };
+// parts: particelle; fx: effetti brevi; wrecks: relitti che bruciano; settle: edifici appena piazzati (id → {t0, dust});
+// spawns: mezzi appena consegnati (id → t0); shake: ampiezza della scossa dello schermo in pixel.
+export const fxs = { parts: [], fx: [], pings: [], boxSel: null, wrecks: [], settle: new Map(), spawns: new Map(), shake: 0 };
+// «Riduci movimento» del sistema: niente scossa, meno particelle, niente pulsazioni.
+const rmq = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
+export const reducedMotion = () => !!(rmq && rmq.matches);

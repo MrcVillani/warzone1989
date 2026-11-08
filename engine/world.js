@@ -1,8 +1,9 @@
 // Stato della partita, entità, visibilità ed eventi verso il client.
 // Le variabili esportate con `let` sono binding "vivi": chi le importa legge sempre il valore attuale,
 // ma solo questo modulo le riassegna.
-import { TILE, MW, MH, N, P, E, B0, STRUCTS, CHASSIS, PROPS, WEAPONS, DIFF, BUILDER } from './data.js';
-import { genMap } from './map.js';
+import { TILE, MW, MH, N, P, E, B0, STRUCTS, CHASSIS, PROPS, WEAPONS, DIFF, BUILDER, TECH_BY, TOWER_MG, TOWER_CN, TOWER_CN75, DEFAULT_DESIGNS, missionOf } from './data.js';
+import { genMap, missionMap } from './map.js';
+import { setupMission } from './mission.js';
 import { ftile } from './util.js';
 
 export let S = null;
@@ -13,13 +14,20 @@ export const proj = [];
 /* ---------- eventi ----------
    Il motore non disegna e non conosce il DOM: comunica con il client tramite eventi.
    toast {text, kind} · ping {x, y} · fx {k, ...} · world {} · fog {} · end {won}
-   fx con k = 'flash': anche w (chiave dell'arma: MG, CN, RK, MO; per le torrette MG o CN) e owner (chi spara);
+   fx con k = 'flash': anche w (chiave dell'arma in WEAPONS; per torrette e bunker quella usata) e owner (chi spara);
+   fx con k = 'flame' {x1, y1, x2, y2, r, owner}: getto del lanciafiamme (r = raggio dell'area in pixel);
+   fx con k = 'repair' {x1, y1, x2, y2, owner}: raggio del modulo riparazione dal mezzo che ripara a quello riparato;
    fx con k = 'boom': anche owner e kind: 'unit' o 'struct' per la distruzione di un'entità (owner = lato
    dell'entità distrutta), 'shot' per l'esplosione di un proiettile (owner = lato del tiratore).
    unit {owner, id, x, y}: una fabbrica o il comando consegnano un mezzo (anche un geniere).
    built {owner, id, type}: un edificio è finito (non per quelli che nascono già pronti, come il comando iniziale).
    research {owner, id}: una ricerca è completata (id della ricerca in TECH).
-   placed {owner, id, type}: un cantiere è stato piazzato (solo se il piazzamento riesce). */
+   placed {owner, id, type}: un cantiere è stato piazzato (solo se il piazzamento riesce).
+   objective {type, progress, target, text, done}: l'avanzamento dell'obiettivo della missione è cambiato (solo in
+   campagna, al più due volte al secondo).
+   end {won, reason}: fine partita; reason: 'objective' (obiettivo della missione raggiunto), 'destroyed' (un lato ha
+   perso comando, fabbriche e genieri: la vittoria in schermaglia e ogni sconfitta), 'time' (tempo della missione
+   scaduto). */
 const listeners = new Set();
 export function onEvent(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 export function emit(type, data = {}) { for (const f of listeners) f(type, data); }
@@ -37,15 +45,35 @@ export function makeStruct(type, owner, tx, ty, built) {
     cd: 0, tang: owner === P ? 0.8 : -2.3, tgt: 0, scan: 0, phase: Math.random() * 6, seen: false,
   });
 }
+// Effetti delle ricerche completate da un lato (campo eff in TECH): somma del valore `key` (dmg: solo la famiglia).
+export function techSum(owner, key, family) {
+  if (owner == null || !S || !S.tech[owner]) return 0;
+  let v = 0;
+  for (const id in S.tech[owner]) {
+    if (!S.tech[owner][id]) continue;
+    const e = TECH_BY[id] && TECH_BY[id].eff; if (!e || e[key] == null) continue;
+    if (key === 'dmg') { if (e.dmg[0] === family) v += e.dmg[1]; } else v += e[key];
+  }
+  return v;
+}
+export const armorBonus = owner => techSum(owner, 'armor');
+export const dmgMul = (owner, family) => 1 + techSum(owner, 'dmg', family);
+export const speedMul = owner => 1 + techSum(owner, 'speed');
+// Arma delle torrette del lato: l'ultima ricerca di torretta completata.
+export function towerWeapon(owner) { const T = S.tech[owner]; return T.twCN75 ? TOWER_CN75 : T.twCN ? TOWER_CN : TOWER_MG; }
+// Statistiche di un progetto. Con owner valgono anche le ricerche di quel lato (corazza, danno, velocità);
+// hps: punti riparati al secondo (solo per il modulo riparazione).
 export function dStats(d, owner) {
   const c = CHASSIS[d.c], p = PROPS[d.p], w = WEAPONS[d.w];
   const cost = c.cost + p.cost + w.cost;
   return {
-    hp: Math.round(c.hp * p.hpm), armor: c.armor + (owner != null && S && S.tech[owner].arm ? 2 : 0),
-    speed: 62 * p.speed * (1.12 - 0.12 * c.wt), cost, time: Math.round(5 + cost / 14),
-    dps: w.dmg / w.rof, range: w.range,
+    hp: Math.round(c.hp * p.hpm), armor: c.armor + armorBonus(owner),
+    speed: baseSpeed(d) * speedMul(owner), cost, time: Math.round(5 + cost / 14),
+    dps: w.dmg * dmgMul(owner, w.family) / w.rof, range: w.range, hps: w.heal || 0,
   };
 }
+// Velocità senza ricerche (pixel al secondo): è quella salvata sul mezzo; i motori si applicano in movimento.
+function baseSpeed(d) { return 62 * PROPS[d.p].speed * (1.12 - 0.12 * CHASSIS[d.c].wt); }
 export function designName(d) { return `${CHASSIS[d.c].name} ${WEAPONS[d.w].short} ${PROPS[d.p].short}`; }
 export function makeUnit(owner, d, x, y) {
   const builder = !d;
@@ -53,17 +81,27 @@ export function makeUnit(owner, d, x, y) {
   const a = owner === P ? 0.8 : -2.3;
   return addEnt({
     kind: 'unit', owner, d: d ? { c: d.c, p: d.p, w: d.w } : null, builder, x, y, ang: a, tang: a,
-    hp: st.hp, max: st.hp, speed: st.speed, water: !builder && PROPS[d.p].water, rad: builder ? 9 : CHASSIS[d.c].rad,
+    hp: st.hp, max: st.hp, speed: builder ? st.speed : baseSpeed(d), water: !builder && PROPS[d.p].water, rad: builder ? 9 : CHASSIS[d.c].rad,
     order: { t: 'idle' }, gx: x, gy: y, cd: 0, tgt: 0, scan: Math.random() * 0.3, path: null, pi: 0, role: null,
   });
 }
 export function armorOf(e) {
   if (e.kind === 'struct') return STRUCTS[e.type].armor;
-  return (e.builder ? BUILDER.armor : CHASSIS[e.d.c].armor) + (S.tech[e.owner].arm ? 2 : 0);
+  return (e.builder ? BUILDER.armor : CHASSIS[e.d.c].armor) + armorBonus(e.owner);
 }
 
 /* ---------- partita ---------- */
-export function newGame(diff, seed) {
+// newGame(diff, seed): schermaglia. newGame(diff, seed, opts) con opts facoltativo:
+//   mission: indice (0–7) o id di una missione della campagna (MISSIONS); il seme della mappa resta `seed`;
+//   tech: ricerche già completate dal giocatore ({id: true}), portate dalla campagna;
+//   designs: progetti salvati dal giocatore;
+//   autoplay: true = anche il lato del giocatore è guidato dall'IA (simulazioni).
+// Stato in più: S.mission (id della missione o null), S.objective, S.maxTier (livello massimo del giocatore, null in
+// schermaglia), S.ecfg (configurazione del nemico in missione), S.mapOpts (ritocchi della mappa).
+// Con opts.tech o opts.designs ma senza missione è una schermaglia con quelle ricerche e quei progetti.
+export function newGame(diff, seed, opts) {
+  const M = opts && opts.mission != null ? missionOf(opts.mission) : null;
+  if (opts && opts.mission != null && !M) throw new Error(`Missione sconosciuta: ${opts.mission}`);
   S = {
     seed, diff, time: 0, nextId: 1, ents: [], res: [600, 600], tech: [{}, {}],
     designs: [{ c: 'L', p: 'W', w: 'MG' }],
@@ -72,19 +110,34 @@ export function newGame(diff, seed) {
     timers: { fog: 0, ai: 0, end: 0 }, lastWarn: -99,
     phase: 'play', explored: null,
   };
+  if (opts) {
+    if (opts.tech) for (const id in opts.tech) if (opts.tech[id] && TECH_BY[id]) S.tech[P][id] = true;
+    if (Array.isArray(opts.designs) && opts.designs.length) S.designs = opts.designs.filter(validDesign).map(d => ({ c: d.c, p: d.p, w: d.w }));
+    if (!S.designs.length) S.designs = DEFAULT_DESIGNS.map(d => ({ ...d }));
+    if (opts.autoplay) S.autoplay = true;
+  }
+  S.mission = M ? M.id : null; S.objective = null; S.maxTier = M ? M.maxTier : null;
+  if (M) S.mapOpts = M.map || {};
   setupWorld();
-  for (const o of [P, E]) {
-    const m = (x, y) => o === P ? [x, y] : [MW - 1 - x, MH - 1 - y];
-    const [hx, hy] = m(B0.x, B0.y);
-    makeStruct('hq', o, hx - 1, hy - 1, true);
-    for (const [x, y] of [[8, 12], [10, 12]]) { const [a, b] = m(x, y); makeUnit(o, null, (a + 0.5) * TILE, (b + 0.5) * TILE); }
-    for (const [x, y] of [[12, 8], [12, 10]]) { const [a, b] = m(x, y); makeUnit(o, { c: 'L', p: 'W', w: 'MG' }, (a + 0.5) * TILE, (b + 0.5) * TILE); }
+  if (M) setupMission(M);
+  else {
+    for (const o of [P, E]) {
+      const m = (x, y) => o === P ? [x, y] : [MW - 1 - x, MH - 1 - y];
+      const [hx, hy] = m(B0.x, B0.y);
+      makeStruct('hq', o, hx - 1, hy - 1, true);
+      for (const [x, y] of [[8, 12], [10, 12]]) { const [a, b] = m(x, y); makeUnit(o, null, (a + 0.5) * TILE, (b + 0.5) * TILE); }
+      for (const [x, y] of [[12, 8], [12, 10]]) { const [a, b] = m(x, y); makeUnit(o, { c: 'L', p: 'W', w: 'MG' }, (a + 0.5) * TILE, (b + 0.5) * TILE); }
+    }
   }
   updateFog();
   return S;
 }
+export const validDesign = d => !!d && !!CHASSIS[d.c] && !!PROPS[d.p] && !!WEAPONS[d.w];
+// Configurazione dell'IA di un lato: in schermaglia quella della difficoltà, in missione quella del nemico della
+// missione (S.ecfg); per il giocatore guidato dall'IA i suoi tempi (AI_PLAYER, passati da ai.js).
+export function enemyCfg() { return S.ecfg || DIFF[S.diff]; }
 function setupWorld() {
-  const m = genMap(S.seed); terr = m.t; deposits = m.deps;
+  const m = S.mapOpts ? missionMap(S.seed, S.mapOpts) : genMap(S.seed); terr = m.t; deposits = m.deps;
   depIdx = new Int16Array(N).fill(-1); deposits.forEach((d, i) => { depIdx[d.x + d.y * MW] = i; });
   occ = new Int32Array(N); vis = new Uint8Array(N);
   explored = S.explored ? Uint8Array.from(S.explored) : new Uint8Array(N);
