@@ -28,15 +28,28 @@ Codice JavaScript puro (moduli ES), senza DOM: gira nel browser e in Node. Si im
 
 | File | Contenuto |
 |---|---|
-| `data.js` | costanti della mappa, telai, propulsioni, armi, edifici, ricerche, livelli di difficoltà |
+| `data.js` | costanti della mappa; telai, propulsioni, armi ed edifici con livello tecnologico (`tier` 1–4) e famiglia d'arma; ricerche con requisiti ed effetti (`eff`); livelli di difficoltà |
 | `util.js` | numeri casuali con seme, rumore per il terreno, angoli, riferimenti di settore (A1–H8) |
 | `map.js` | mappa 64×64 simmetrica rispetto al centro, giacimenti, corridoi garantiti tra le basi |
 | `world.js` | stato `S`, creazione di mezzi ed edifici, visibilità del giocatore, salvataggio, eventi |
 | `path.js` | passabilità e percorsi A* a 8 direzioni, disposizione dei gruppi, mappe di raggiungibilità (`reachMap`, `reachableAdj`) |
 | `orders.js` | ordini (muovi, attacca, costruisci, ferma), piazzamento, produzione, ricerca, smontaggio (`demolish`) |
-| `combat.js` | distanze, scelta dei bersagli, danno con corazza, colpi, proiettili |
+| `combat.js` | distanze, scelta dei bersagli, danno con corazza e modificatori dell'arma (`hitDamage`, `areaDamage`), colpi, proiettili (`tracer`, `shell`, `rocket`, `missile`, `mortar`), fiamma e riparazione |
 | `sim.js` | movimento, costruzione, produzione, torrette, officine, fine partita, `step(dt)` |
 | `ai.js` | IA del Direttorio Ferreo: pompe, edifici, ricerca, produzione, difesa, ondate; sceglie solo posti raggiungibili e smonta i cantieri bloccati da più di `AI_STALL` secondi |
+
+### Livelli tecnologici e ricerche
+
+Ogni parte, edificio e ricerca ha un livello da I a IV. Le parti di livello I sono libere; le altre richiedono la loro
+ricerca. Per avviare una ricerca di livello N+1 servono `TIER_GATE` (2) ricerche completate di livello N, oltre ai
+requisiti in `req`. `techBlockReason(owner, id)` restituisce il motivo in italiano o `null`; `tierAvail` e `tierDone`
+servono al pannello. Gli effetti dei potenziamenti si calcolano al momento dell'uso (`armorBonus`, `dmgMul`,
+`speedMul`, `towerWeapon`), quindi valgono anche per i mezzi già in campo, le torrette e i bunker.
+
+Armi con regole speciali: lanciafiamme (`armorK` dimezza la corazza, `vsStruct` più danno agli edifici, area), modulo
+riparazione (`heal`: cura il mezzo alleato più danneggiato entro 3 caselle, non attacca), missile anticarro
+(`antiArmor`: +10% di danno per punto di corazza), lanciarazzi (`salvo`: razzi per salva), obice e mortaio
+(`minRange`, area). Limite di mezzi per lato: `UNIT_CAP` = 100.
 
 ### Stato
 
@@ -53,7 +66,7 @@ proiettili in volo, che `loadState` rimette nell'array `proj`.
 |---|---|---|
 | `world` | — | nuova mappa: il client ridisegna il terreno |
 | `fog` | — | visibilità aggiornata (ogni 0,2 s) |
-| `fx` | `{k, …}` con `k` tra `boom`, `scorch`, `flash`, `tracer`, `hit`, `trail`, `spark`, `spray`, `chimney`; `flash` porta `w` (arma: `MG`, `CN`, `RK`, `MO`) e `owner` (chi spara); `boom` porta `kind` (`unit`, `struct`: `owner` è il lato distrutto; `shot`: `owner` è il tiratore) | effetti visivi e suoni |
+| `fx` | `{k, …}` con `k` tra `boom`, `scorch`, `flash`, `tracer`, `hit`, `trail`, `spark`, `spray`, `chimney`, `flame` (`{x1,y1,x2,y2,r,owner}`), `repair` (`{x1,y1,x2,y2,owner}`); `flash` porta `w` (chiave dell'arma in `WEAPONS`) e `owner` (chi spara); `boom` porta `kind` (`unit`, `struct`: `owner` è il lato distrutto; `shot`: `owner` è il tiratore) | effetti visivi e suoni |
 | `unit` | `{owner, id, x, y}` | un mezzo (anche un geniere) esce da fabbrica o comando |
 | `built` | `{owner, id, type}` | un cantiere è finito (non per il comando iniziale) |
 | `placed` | `{owner, id, type}` | un cantiere è stato piazzato |
