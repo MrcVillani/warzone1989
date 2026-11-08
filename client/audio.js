@@ -16,6 +16,7 @@ const voices = [];          // istanti di fine delle voci in corso (tempo dell'A
 const last = {};            // ultimo avvio di ogni suono, per limitare le ripetizioni
 const stats = { played: 0, dropped: 0 };
 const listeners = new Set();
+const readyFns = [];        // chi aspetta il contesto audio (la musica)
 
 /* ---------- impostazioni ---------- */
 export const soundOn = () => enabled;
@@ -51,9 +52,12 @@ function ensure() {
     const len = ac.sampleRate * 2; noiseBuf = ac.createBuffer(1, len, ac.sampleRate);
     const ch = noiseBuf.getChannelData(0); for (let i = 0; i < len; i++) ch[i] = Math.random() * 2 - 1;
     startAmbient();
+    for (const f of readyFns) f(ac, master);
   }
   if (enabled && ac.state !== 'running' && document.visibilityState !== 'hidden') ac.resume().catch(() => {});
 }
+// fn(ac, master) appena il contesto audio esiste (si crea al primo gesto): la musica si collega al bus principale.
+export function onAudioReady(fn) { if (ac) fn(ac, master); else readyFns.push(fn); }
 export function initAudio() {
   const g = () => ensure();
   for (const ev of ['pointerdown', 'keydown', 'touchend']) window.addEventListener(ev, g, { capture: true, passive: true });
@@ -288,6 +292,13 @@ function start(name, g, pan) {
   setTimeout(() => { try { out.disconnect(); } catch (e) { /* già scollegato */ } }, (dur + 0.3) * 1000);
 }
 const ready = () => ac && enabled && ac.state === 'running';
+// Peso di un evento per la musica: 1 sullo schermo, meno fuori; 0 se il giocatore non lo vede (stessa regola dei
+// suoni). Le cose del giocatore fuori dalla visuale contano poco ma contano.
+export function heard(x, y, owner) {
+  if (!audible(x, y, owner)) return 0;
+  const sp = spatial(x, y);
+  return sp ? Math.min(1, sp.g) : owner === P ? 0.3 : 0;
+}
 // Suono nel mondo, alla posizione (x, y), prodotto dal lato owner (può mancare).
 export function sfx(name, x, y, owner) {
   if (!ready() || !audible(x, y, owner)) return;

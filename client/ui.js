@@ -9,6 +9,7 @@ import { selEnts, selUnits, setSel } from './selection.js';
 import { centerOn, screenToWorld, drawVehicle, vehicleExtent, hpColor } from './render.js';
 import { soundOn, setSound, getVolume, setVolume, onAudioChange, uiSfx } from './audio.js';
 import { fxq, setPref } from './quality.js';
+import { musicOn, setMusic, getMusicVolume, setMusicVolume, onMusicChange } from './music.js';
 import { selectArmy } from './input.js';
 
 const $ = id => document.getElementById(id);
@@ -270,6 +271,7 @@ export function initUI(cv) {
   $('btnArmy').addEventListener('click', () => { if (S) selectArmy(); });
   $('btnSound').addEventListener('click', () => setSound(!soundOn()));
   onAudioChange(syncSound); syncSound();
+  onAudioChange(syncMusic); onMusicChange(syncMusic);
   // clic dell'interfaccia su ogni pulsante
   document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('button'); if (b && !b.disabled) uiSfx('click'); });
 }
@@ -280,6 +282,14 @@ function syncSound() {
   const sw = $('ovSound'); if (sw) { sw.textContent = on ? 'Acceso' : 'Spento'; sw.classList.toggle('on', on); sw.setAttribute('aria-pressed', on ? 'true' : 'false'); }
   const v = $('ovVol'); if (v) { v.value = Math.round(getVolume() * 100); v.disabled = !on; }
   const vv = $('ovVolV'); if (vv) vv.textContent = Math.round(getVolume() * 100) + '%';
+}
+
+// Musica: accesa o spenta e volume proprio, sotto il volume principale (con il suono spento non si sente).
+function syncMusic() {
+  const on = musicOn(), sw = $('ovMusic'); if (!sw) return;
+  sw.textContent = on ? 'Accesa' : 'Spenta'; sw.classList.toggle('on', on); sw.setAttribute('aria-pressed', on ? 'true' : 'false');
+  const v = $('ovMVol'); if (v) { v.value = Math.round(getMusicVolume() * 100); v.disabled = !on || !soundOn(); }
+  const vv = $('ovMVolV'); if (vv) vv.textContent = Math.round(getMusicVolume() * 100) + '%';
 }
 
 // Qualità degli effetti: automatica (si adatta al dispositivo), sempre alta o sempre bassa.
@@ -307,7 +317,7 @@ export const CONTROLS = `<dl class="controls">
 </dl>`;
 export const ov = () => $('overlay');
 export const randomSeed = () => (Math.random() * 1e9) | 0;
-// Manuale da campo con le impostazioni di suono ed effetti. back: cosa fare alla chiusura (dal menu si torna al menu;
+// Manuale da campo con le impostazioni di suono, musica ed effetti. back: cosa fare alla chiusura (dal menu si torna al menu;
 // in partita si torna alla partita).
 let helpBack = null;
 export function showHelp(back) {
@@ -320,11 +330,16 @@ export function showHelp(back) {
   <p class="brief">Le pompe sui giacimenti producono il gasolio. Il laboratorio sblocca telai, propulsioni e armi; nella scheda Progetta li combini in un nuovo mezzo e la fabbrica lo produce. ${back ? 'In schermaglia vinci quando il nemico non ha più comando, fabbriche né genieri; in campagna ogni missione ha il suo obiettivo.' : goal}</p>
   <div class="audioset"><span class="lbl">Suono</span><button class="btn" id="ovSound" aria-pressed="true">Acceso</button>
     <label for="ovVol">Volume</label><input type="range" id="ovVol" min="0" max="100" step="5"><output id="ovVolV">60%</output></div>
+  <div class="audioset"><span class="lbl">Musica</span><button class="btn" id="ovMusic" aria-pressed="true">Accesa</button>
+    <label for="ovMVol">Volume</label><input type="range" id="ovMVol" min="0" max="100" step="5" aria-label="Volume della musica"><output id="ovMVolV">50%</output></div>
   <div class="audioset" role="group" aria-label="Qualità degli effetti"><span class="lbl">Effetti</span>${FX_OPTS.map(([k, l]) => `<button class="btn" data-fx="${k}">${l}</button>`).join('')}<output id="ovFxV"></output></div>
   ${CONTROLS}<div class="actions"><button class="primary" id="ovClose">${back ? 'Torna al menu' : 'Torna alla partita'}</button></div></div>`;
   $('ovSound').addEventListener('click', () => setSound(!soundOn()));
   $('ovVol').addEventListener('input', e => setVolume(e.target.value / 100));
   syncSound();
+  $('ovMusic').addEventListener('click', () => setMusic(!musicOn()));
+  $('ovMVol').addEventListener('input', e => setMusicVolume(e.target.value / 100));
+  syncMusic();
   o.querySelectorAll('[data-fx]').forEach(b => b.addEventListener('click', () => { setPref(b.dataset.fx); syncFx(); }));
   syncFx();
   $('ovClose').addEventListener('click', closeHelp); $('ovClose').focus();
