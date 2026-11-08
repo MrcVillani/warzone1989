@@ -1,7 +1,7 @@
 // Stato della partita, entità, visibilità ed eventi verso il client.
 // Le variabili esportate con `let` sono binding "vivi": chi le importa legge sempre il valore attuale,
 // ma solo questo modulo le riassegna.
-import { TILE, MW, MH, N, P, E, B0, STRUCTS, CHASSIS, PROPS, WEAPONS, DIFF, BUILDER } from './data.js';
+import { TILE, MW, MH, N, P, E, B0, STRUCTS, CHASSIS, PROPS, WEAPONS, DIFF, BUILDER, TECH_BY, TOWER_MG, TOWER_CN, TOWER_CN75 } from './data.js';
 import { genMap } from './map.js';
 import { ftile } from './util.js';
 
@@ -13,7 +13,9 @@ export const proj = [];
 /* ---------- eventi ----------
    Il motore non disegna e non conosce il DOM: comunica con il client tramite eventi.
    toast {text, kind} · ping {x, y} · fx {k, ...} · world {} · fog {} · end {won}
-   fx con k = 'flash': anche w (chiave dell'arma: MG, CN, RK, MO; per le torrette MG o CN) e owner (chi spara);
+   fx con k = 'flash': anche w (chiave dell'arma in WEAPONS; per torrette e bunker quella usata) e owner (chi spara);
+   fx con k = 'flame' {x1, y1, x2, y2, r, owner}: getto del lanciafiamme (r = raggio dell'area in pixel);
+   fx con k = 'repair' {x1, y1, x2, y2, owner}: raggio del modulo riparazione dal mezzo che ripara a quello riparato;
    fx con k = 'boom': anche owner e kind: 'unit' o 'struct' per la distruzione di un'entità (owner = lato
    dell'entità distrutta), 'shot' per l'esplosione di un proiettile (owner = lato del tiratore).
    unit {owner, id, x, y}: una fabbrica o il comando consegnano un mezzo (anche un geniere).
@@ -37,15 +39,35 @@ export function makeStruct(type, owner, tx, ty, built) {
     cd: 0, tang: owner === P ? 0.8 : -2.3, tgt: 0, scan: 0, phase: Math.random() * 6, seen: false,
   });
 }
+// Effetti delle ricerche completate da un lato (campo eff in TECH): somma del valore `key` (dmg: solo la famiglia).
+export function techSum(owner, key, family) {
+  if (owner == null || !S || !S.tech[owner]) return 0;
+  let v = 0;
+  for (const id in S.tech[owner]) {
+    if (!S.tech[owner][id]) continue;
+    const e = TECH_BY[id] && TECH_BY[id].eff; if (!e || e[key] == null) continue;
+    if (key === 'dmg') { if (e.dmg[0] === family) v += e.dmg[1]; } else v += e[key];
+  }
+  return v;
+}
+export const armorBonus = owner => techSum(owner, 'armor');
+export const dmgMul = (owner, family) => 1 + techSum(owner, 'dmg', family);
+export const speedMul = owner => 1 + techSum(owner, 'speed');
+// Arma delle torrette del lato: l'ultima ricerca di torretta completata.
+export function towerWeapon(owner) { const T = S.tech[owner]; return T.twCN75 ? TOWER_CN75 : T.twCN ? TOWER_CN : TOWER_MG; }
+// Statistiche di un progetto. Con owner valgono anche le ricerche di quel lato (corazza, danno, velocità);
+// hps: punti riparati al secondo (solo per il modulo riparazione).
 export function dStats(d, owner) {
   const c = CHASSIS[d.c], p = PROPS[d.p], w = WEAPONS[d.w];
   const cost = c.cost + p.cost + w.cost;
   return {
-    hp: Math.round(c.hp * p.hpm), armor: c.armor + (owner != null && S && S.tech[owner].arm ? 2 : 0),
-    speed: 62 * p.speed * (1.12 - 0.12 * c.wt), cost, time: Math.round(5 + cost / 14),
-    dps: w.dmg / w.rof, range: w.range,
+    hp: Math.round(c.hp * p.hpm), armor: c.armor + armorBonus(owner),
+    speed: baseSpeed(d) * speedMul(owner), cost, time: Math.round(5 + cost / 14),
+    dps: w.dmg * dmgMul(owner, w.family) / w.rof, range: w.range, hps: w.heal || 0,
   };
 }
+// Velocità senza ricerche (pixel al secondo): è quella salvata sul mezzo; i motori si applicano in movimento.
+function baseSpeed(d) { return 62 * PROPS[d.p].speed * (1.12 - 0.12 * CHASSIS[d.c].wt); }
 export function designName(d) { return `${CHASSIS[d.c].name} ${WEAPONS[d.w].short} ${PROPS[d.p].short}`; }
 export function makeUnit(owner, d, x, y) {
   const builder = !d;
@@ -53,13 +75,13 @@ export function makeUnit(owner, d, x, y) {
   const a = owner === P ? 0.8 : -2.3;
   return addEnt({
     kind: 'unit', owner, d: d ? { c: d.c, p: d.p, w: d.w } : null, builder, x, y, ang: a, tang: a,
-    hp: st.hp, max: st.hp, speed: st.speed, water: !builder && PROPS[d.p].water, rad: builder ? 9 : CHASSIS[d.c].rad,
+    hp: st.hp, max: st.hp, speed: builder ? st.speed : baseSpeed(d), water: !builder && PROPS[d.p].water, rad: builder ? 9 : CHASSIS[d.c].rad,
     order: { t: 'idle' }, gx: x, gy: y, cd: 0, tgt: 0, scan: Math.random() * 0.3, path: null, pi: 0, role: null,
   });
 }
 export function armorOf(e) {
   if (e.kind === 'struct') return STRUCTS[e.type].armor;
-  return (e.builder ? BUILDER.armor : CHASSIS[e.d.c].armor) + (S.tech[e.owner].arm ? 2 : 0);
+  return (e.builder ? BUILDER.armor : CHASSIS[e.d.c].armor) + armorBonus(e.owner);
 }
 
 /* ---------- partita ---------- */

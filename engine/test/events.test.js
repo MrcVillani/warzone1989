@@ -21,7 +21,8 @@ function duel(w) {
   return { shooter, target };
 }
 
-for (const w of Object.keys(WEAPONS)) {
+// Il modulo riparazione non spara: ha il suo test più sotto (fx repair, nessun flash).
+for (const w of Object.keys(WEAPONS).filter(k => !WEAPONS[k].heal)) {
   test(`fx flash: un mezzo con ${w} spara con w = '${w}' e owner del tiratore`, () => {
     const restore = seedRandom(7);
     try {
@@ -63,6 +64,39 @@ test('fx flash: la torretta spara con MG, e con CN dopo la ricerca twCN', () => 
       for (const f of shots) assert.equal(f.w, want);
     } finally { restore(); }
   }
+});
+
+test('fx repair: un mezzo con RP non spara e ripara un alleato danneggiato, con owner del riparatore', () => {
+  const restore = seedRandom(7);
+  try {
+    const { shooter, target } = duel('RP');
+    const ally = makeUnit(P, { c: 'L', p: 'W', w: 'RP' }, shooter.x, shooter.y + 2 * TILE); // RP: non attacca il bersaglio
+    ally.hp = ally.max / 2;
+    const ev = recordEvents();
+    run(3);
+    ev.stop();
+    const fx = ev.of('fx');
+    assert.equal(fx.filter(f => f.k === 'flash' && f.w === 'RP').length, 0, 'il riparatore ha sparato');
+    const rep = fx.filter(f => f.k === 'repair');
+    assert.ok(rep.length > 0, 'nessun fx repair');
+    for (const f of rep) {
+      assert.equal(f.owner, P);
+      assert.ok([f.x1, f.y1, f.x2, f.y2].every(Number.isFinite));
+    }
+    assert.equal(target.hp, target.max, 'il riparatore non attacca il nemico');
+    assert.ok(ally.hp > ally.max / 2, 'l’alleato non è stato riparato');
+  } finally { restore(); }
+});
+
+test('fx repair: nessun raggio se non c’è nessuno da riparare', () => {
+  const restore = seedRandom(7);
+  try {
+    duel('RP');
+    const ev = recordEvents();
+    run(3);
+    ev.stop();
+    assert.equal(ev.of('fx').filter(f => f.k === 'repair' && f.owner === P).length, 0);
+  } finally { restore(); }
 });
 
 test('fx boom: kind unit per un mezzo distrutto, owner = lato del mezzo', () => {
@@ -237,6 +271,9 @@ test('evento research: owner e id della ricerca, una sola volta', () => {
   newGame('normale', 12345);
   const [x, y] = findSpot(P, 'lab', B0.x - 1, B0.y + 4);
   const lab = makeStruct('lab', P, x, y, true);
+  // prHT è di livello II: servono prima due ricerche di livello I.
+  assert.equal(startResearch(P, lab, 'prHT'), false);
+  S.tech[P].dMG1 = S.tech[P].mot1 = true;
   assert.equal(startResearch(P, lab, 'prHT'), true);
   const ev = recordEvents();
   run(TECH_BY.prHT.time - 1);

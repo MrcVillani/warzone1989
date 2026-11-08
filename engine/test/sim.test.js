@@ -54,6 +54,19 @@ test('la ricerca si completa nel tempo previsto e sblocca la tecnologia', () => 
   newGame('normale', 12345);
   const [x, y] = findSpot(P, 'lab', B0.x - 1, B0.y + 4);
   const lab = makeStruct('lab', P, x, y, true);
+  const [x2, y2] = findSpot(P, 'lab', B0.x + 3, B0.y + 4);
+  const lab2 = makeStruct('lab', P, x2, y2, true);
+  S.res[P] = 1000;
+  // wCN è di livello II: si sblocca solo dopo due ricerche di livello I completate (non basta averle avviate).
+  assert.equal(startResearch(P, lab, 'wCN'), false);
+  assert.equal(startResearch(P, lab, 'dMG1'), true);
+  assert.equal(startResearch(P, lab2, 'mot1'), true);
+  run(TECH_BY.dMG1.time + 0.5);
+  assert.equal(S.tech[P].dMG1, true);
+  assert.ok(!S.tech[P].mot1);
+  assert.equal(startResearch(P, lab, 'wCN'), false, 'una sola ricerca di livello I completata');
+  run(TECH_BY.mot1.time - TECH_BY.dMG1.time + 0.5);
+  assert.equal(S.tech[P].mot1, true);
   assert.equal(startResearch(P, lab, 'wCN'), true);
   const ev = recordEvents();
   run(TECH_BY.wCN.time - 1);
