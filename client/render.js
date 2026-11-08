@@ -1000,6 +1000,51 @@ function drawFog(g) {
   const w = bx1 - bx0 + 1, h = by1 - by0 + 1;
   g.drawImage(fogC, bx0, by0, w, h, bx0 * TILE, by0 * TILE, w * TILE, h * TILE);
 }
+// Carta della missione per il briefing: terreno e giacimenti della mappa già calcolata dal motore, edifici dei due
+// lati senza nebbia, cerchi sulle basi e frecce sui punti d'ingresso delle ondate da fuori mappa.
+export function drawMissionMap(c) {
+  if (!S || !terr) return;
+  const sc = Math.max(2, Math.floor(c.width / MW)), W = MW * sc, H = MH * sc;
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const img = g.createImageData(MW, MH);
+  const mc = { [GROUND]: [86, 98, 62], [DIRT]: [117, 101, 72], [WATER]: [48, 78, 88], [ROCK]: [112, 108, 98], [FOREST]: [52, 68, 38] };
+  for (let i = 0; i < N; i++) { const c3 = mc[terr[i]]; img.data[i * 4] = c3[0]; img.data[i * 4 + 1] = c3[1]; img.data[i * 4 + 2] = c3[2]; img.data[i * 4 + 3] = 255; }
+  const tmp = document.createElement('canvas'); tmp.width = MW; tmp.height = MH; tmp.getContext('2d').putImageData(img, 0, 0);
+  g.imageSmoothingEnabled = false; g.drawImage(tmp, 0, 0, W, H);
+  g.fillStyle = 'rgba(17,20,18,0.18)'; g.fillRect(0, 0, W, H);
+  g.strokeStyle = 'rgba(235,228,200,0.16)'; g.lineWidth = 1;
+  for (let i = 1; i < 8; i++) { const p = Math.round(i * W / 8) + 0.5; g.beginPath(); g.moveTo(p, 0); g.lineTo(p, H); g.moveTo(0, p); g.lineTo(W, p); g.stroke(); }
+  g.fillStyle = '#1a1712';
+  for (const d of deposits) { g.beginPath(); g.arc((d.x + 0.5) * sc, (d.y + 0.5) * sc, sc * 0.55, 0, 7); g.fill(); }
+  for (const e of S.ents) {
+    if (e.dead || e.kind !== 'struct') continue;
+    g.fillStyle = PAL[e.owner].dot; g.fillRect(e.tx * sc, e.ty * sc, e.w * sc, e.h * sc);
+  }
+  const ring = (x, y, col, label) => {
+    g.strokeStyle = col; g.lineWidth = Math.max(2, sc * 0.5); g.setLineDash([sc * 1.4, sc]);
+    g.beginPath(); g.arc(x, y, sc * 7, 0, 7); g.stroke(); g.setLineDash([]);
+    g.font = `600 ${Math.max(11, sc * 3)}px "IBM Plex Sans Condensed", sans-serif`; g.textAlign = 'center';
+    const ty = y - sc * 8.2 < 12 ? y + sc * 10.5 : y - sc * 8.2;
+    g.lineWidth = 3; g.strokeStyle = 'rgba(10,12,11,0.85)'; g.strokeText(label, x, ty); g.fillStyle = col; g.fillText(label, x, ty);
+  };
+  const hq = S.ents.find(e => !e.dead && e.owner === P && e.type === 'hq');
+  if (hq) ring(hq.x / TILE * sc, hq.y / TILE * sc, PAL[P].light, 'Brigata Aurora');
+  const bases = S.ents.filter(e => !e.dead && e.owner !== P && e.type === 'hq');
+  for (const b of bases) ring(b.x / TILE * sc, b.y / TILE * sc, PAL[1].light, 'Direttorio');
+  // ondate da fuori mappa: freccia rivolta verso l'interno sul bordo d'ingresso
+  for (const [x, y] of (S.ai && S.ai.spawns) || []) {
+    const px = (x + 0.5) * sc, py = (y + 0.5) * sc, a = Math.atan2(MH / 2 * sc - py, MW / 2 * sc - px);
+    const L = sc * 5;
+    g.fillStyle = PAL[1].light; g.beginPath();
+    g.moveTo(px + Math.cos(a) * L, py + Math.sin(a) * L);
+    g.lineTo(px + Math.cos(a + 2.5) * L * 0.6, py + Math.sin(a + 2.5) * L * 0.6);
+    g.lineTo(px + Math.cos(a - 2.5) * L * 0.6, py + Math.sin(a - 2.5) * L * 0.6);
+    g.closePath(); g.fill();
+  }
+  g.fillStyle = 'rgba(235,228,200,0.45)'; g.font = `500 ${Math.max(9, sc * 2.2)}px "IBM Plex Mono", monospace`; g.textAlign = 'left';
+  for (let gy = 0; gy < 8; gy++) for (let gx = 0; gx < 8; gx++) if (!gx || !gy) g.fillText('ABCDEFGH'[gx] + (gy + 1), gx * W / 8 + 3, gy * H / 8 + sc * 2.6);
+}
 export function renderMini() {
   if (!S || !mmBase) return;
   const g = mctx, W = mini.width, H = mini.height, sx = W / MW, sy = H / MH;

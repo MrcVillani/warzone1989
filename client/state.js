@@ -10,6 +10,8 @@ export const ui = {
   diff: 'normale', groups: {}, sel: [], lastGroup: null, lastGroupT: 0,
   // resFold: livelli della scheda Ricerca aperti o chiusi dal giocatore (livello → true/false; se manca, default)
   resFold: {},
+  // techBefore: ricerche della campagna all'avvio della missione in corso (per il rapporto: quelle nuove)
+  techBefore: [],
 };
 export const cam = { x: 0, y: 0, z: 1 };
 export const view = { dpr: 1, cw: 800, ch: 600 };

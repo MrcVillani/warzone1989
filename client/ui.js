@@ -2,7 +2,7 @@
 import {
   TILE, P, B0, CHASSIS, PROPS, WEAPONS, STRUCTS, BUILD_ORDER, TECH, TECH_BY, DIFF, BUILDER, TIERS, TIER_GATE, FAMILIES, BUNKER_W,
   S, ent, newGame, dStats, designName, armorOf, enqueue, cancelQueued, startResearch, pumpRate,
-  cmdStop, ftile, gridRef, tierAvail, tierDone, techBlockReason, towerWeapon, speedMul,
+  cmdStop, ftile, gridRef, tierAvail, tierDone, tierCap, techBlockReason, towerWeapon, speedMul,
 } from '../engine/index.js';
 import { ui, cam, view, fxs, FACTION, PAL } from './state.js';
 import { selEnts, selUnits, setSel } from './selection.js';
@@ -27,6 +27,10 @@ export function toast(text, kind) {
 /* ---------- partita ---------- */
 export function startGame(diff, seed) {
   newGame(diff, seed);
+  resetClient();
+}
+// Dopo una partita nuova (schermaglia o missione): selezione, schede, effetti e camera da capo.
+export function resetClient() {
   ui.sel = []; ui.groups = {}; ui.placing = null; ui.amove = false; ui.producer = 0; ui.tab = 'build';
   ui.draft = { c: 'L', p: 'W', w: 'MG' }; ui.key = ''; ui.resFold = {};
   fxs.parts = []; fxs.fx = []; fxs.pings = []; fxs.boxSel = null;
@@ -104,7 +108,7 @@ function htmlBuild() {
   for (const t of BUILD_ORDER) {
     const D = STRUCTS[t], locked = D.req && !S.tech[P][D.req], can = has && !locked && S.res[P] >= D.cost;
     let ds = D.desc;
-    if (locked) { const R = TECH_BY[D.req]; ds = `Richiede la ricerca ${R.name} (livello ${TIERS[R.tier - 1]}).`; }
+    if (locked) { const R = TECH_BY[D.req]; ds = R.tier > tierCap(P) ? `Non disponibile in questa missione (livello max ${TIERS[tierCap(P) - 1]}).` : `Richiede la ricerca ${R.name} (livello ${TIERS[R.tier - 1]}).`; }
     else if (t === 'tower') { const W = towerWeapon(P); ds = `Difesa fissa con ${W.name.toLowerCase()}. Gittata ${dec(W.range)} caselle.`; }
     h += `<button class="item ${ui.placing === t ? 'on' : ''}" data-act="place" data-type="${t}" ${can ? '' : 'disabled'}>
       <span class="fp">${D.w}×${D.h}</span><span class="nm">${D.name}</span><span class="cost">${D.cost}</span>
@@ -142,6 +146,7 @@ function htmlProd() {
 const rangeTxt = W => (W.minRange ? dec(W.minRange) + '–' : '') + dec(W.range);
 // Un livello è aperto per default se è sbloccato e non tutto completato; il giocatore può aprirlo o chiuderlo.
 function tierOpen(t) {
+  if (t > tierCap(P)) return false; // oltre il livello massimo della missione: sempre chiuso
   if (ui.resFold && ui.resFold[t] != null) return ui.resFold[t];
   return tierAvail(P, t) && TECH.some(T => T.tier === t && !S.tech[P][T.id]);
 }
@@ -152,9 +157,10 @@ function htmlRes() {
   h += `<p class="hint small">Ogni livello si apre con ${TIER_GATE} ricerche completate del livello precedente.</p>`;
   for (let t = 1; t <= TIERS.length; t++) {
     const list = TECH.filter(T => T.tier === t); if (!list.length) continue;
-    const avail = tierAvail(P, t), open = tierOpen(t), done = tierDone(P, t);
-    const state = avail ? `aperto · ${done}/${list.length} completate` : `Servono ${TIER_GATE} ricerche di livello ${TIERS[t - 2]} (${Math.min(tierDone(P, t - 1), TIER_GATE)}/${TIER_GATE})`;
-    h += `<button class="tierh ${avail ? '' : 'locked'} ${open ? 'open' : ''}" data-act="tier" data-t="${t}" aria-expanded="${open}"><span class="tn">Livello ${TIERS[t - 1]}</span><span class="ts">${state}</span><span class="chev" aria-hidden="true"></span></button>`;
+    const avail = tierAvail(P, t), open = tierOpen(t), done = tierDone(P, t), capped = t > tierCap(P);
+    const state = capped ? `Non disponibile in questa missione (livello max ${TIERS[tierCap(P) - 1]})${done ? ` · ${done} già completate` : ''}`
+      : avail ? `aperto · ${done}/${list.length} completate` : `Servono ${TIER_GATE} ricerche di livello ${TIERS[t - 2]} (${Math.min(tierDone(P, t - 1), TIER_GATE)}/${TIER_GATE})`;
+    h += `<button class="tierh ${avail ? '' : 'locked'} ${capped ? 'capped' : ''} ${open ? 'open' : ''}" data-act="tier" data-t="${t}" aria-expanded="${open}" ${capped ? 'aria-disabled="true"' : ''}><span class="tn">Livello ${TIERS[t - 1]}</span><span class="ts">${state}</span><span class="chev" aria-hidden="true"></span></button>`;
     if (!open) continue;
     h += '<div class="list">';
     for (const T of list) {
@@ -180,9 +186,9 @@ function htmlDes() {
   const d = ui.draft, st = dStats(d, P), W = WEAPONS[d.w];
   // parti ordinate per livello; quelle da ricercare sono spente e mostrano il livello
   const seg = (kind, table, title) => `<div class="sec">${title}</div><div class="seg">${Object.entries(table).sort((a, b) => a[1].tier - b[1].tier).map(([k, v]) => {
-    const ok = partReady(kind, k);
+    const ok = partReady(kind, k), out = !ok && v.tier > tierCap(P), miss = out ? 'non in missione' : 'da ricercare';
     const info = kind === 'c' ? `${v.hp} PS · ${v.cost}` : kind === 'p' ? `${Math.round(v.speed * 100)}% vel · ${v.cost}` : v.heal ? `ripara ${dec(v.heal)}/s · ${v.cost}` : `gitt. ${rangeTxt(v)} · ${v.cost}`;
-    return `<button data-act="dpart" data-k="${kind}" data-v="${k}" class="${d[kind] === k ? 'on' : ''}" ${ok ? '' : 'disabled'} title="${esc(v.name)}${ok ? '' : ' · livello ' + TIERS[v.tier - 1] + ', da ricercare'}"><span>${esc(v.label || v.name)}</span><small><b class="tr">${TIERS[v.tier - 1]}</b> ${ok ? info : 'da ricercare'}</small></button>`;
+    return `<button data-act="dpart" data-k="${kind}" data-v="${k}" class="${d[kind] === k ? 'on' : ''}" ${ok ? '' : 'disabled'} title="${esc(v.name)}${ok ? '' : ' · livello ' + TIERS[v.tier - 1] + ', ' + miss}"><span>${esc(v.label || v.name)}</span><small><b class="tr">${TIERS[v.tier - 1]}</b> ${ok ? info : miss}</small></button>`;
   }).join('')}</div>`;
   const exists = S.designs.some(x => x.c === d.c && x.p === d.p && x.w === d.w);
   let h = `<div class="preview"><canvas id="dprev" width="192" height="144"></canvas><div><div class="pn">${esc(designName(d))}</div><div class="pc">${st.cost} gasolio · ${st.time} s</div></div></div>`;
@@ -248,7 +254,7 @@ export function initUI(cv) {
       const free = S.ents.find(l => !l.dead && l.owner === P && l.type === 'lab' && l.built >= 1 && !l.rs);
       if (!free) toast('Nessun laboratorio libero.', 'warn'); else if (!startResearch(P, free, b.dataset.id)) toast('Gasolio insufficiente per questa ricerca.', 'warn');
     }
-    else if (a === 'tier') { const t = +b.dataset.t; ui.resFold = Object.assign({}, ui.resFold, { [t]: !tierOpen(t) }); }
+    else if (a === 'tier') { const t = +b.dataset.t; if (t > tierCap(P)) { toast(`Livello ${TIERS[t - 1]} non disponibile in questa missione.`, 'warn'); return; } ui.resFold = Object.assign({}, ui.resFold, { [t]: !tierOpen(t) }); }
     else if (a === 'dpart') ui.draft = Object.assign({}, ui.draft, { [b.dataset.k]: b.dataset.v });
     else if (a === 'dsave') { if (!S.designs.some(x => x.c === ui.draft.c && x.p === ui.draft.p && x.w === ui.draft.w) && S.designs.length < 8) { S.designs.push(Object.assign({}, ui.draft)); toast(`Progetto salvato: ${designName(ui.draft)}.`); } }
     else if (a === 'ddel') { if (S.designs.length > 1) S.designs.splice(+b.dataset.i, 1); }
@@ -283,8 +289,9 @@ function syncFx() {
   const v = $('ovFxV'); if (v) v.textContent = fxq.pref === 'auto' ? `ora ${fxq.q.name}` : '';
 }
 
-/* ---------- copertina, aiuto, fine ---------- */
-const CONTROLS = `<dl class="controls">
+/* ---------- aiuto e schermate ----------
+   Menu, campagna, briefing e rapporti sono in screens.js; qui i comandi e la chiusura delle schermate. */
+export const CONTROLS = `<dl class="controls">
   <div><dt>Clic su un tuo mezzo</dt><dd>lo seleziona (anche un edificio); trascina per un riquadro</dd></div>
   <div><dt>Clic sulla mappa</dt><dd>con mezzi selezionati: muovi, attacca, costruisci, ripara (anche clic destro)</dd></div>
   <div><dt>Fabbrica + clic</dt><dd>con una fabbrica o il comando selezionati: punto di raduno</dd></div>
@@ -298,61 +305,32 @@ const CONTROLS = `<dl class="controls">
   <div><dt>Rotella</dt><dd>zoom</dd></div>
   <div><dt>Touch</dt><dd>tocca un tuo mezzo, poi tocca la mappa per dargli un ordine. Il pulsante «Mappa» fa scorrere, due dita per lo zoom.</dd></div>
 </dl>`;
-const ov = () => $('overlay');
-const randomSeed = () => (Math.random() * 1e9) | 0;
-export function showStart() {
+export const ov = () => $('overlay');
+export const randomSeed = () => (Math.random() * 1e9) | 0;
+// Manuale da campo con le impostazioni di suono ed effetti. back: cosa fare alla chiusura (dal menu si torna al menu;
+// in partita si torna alla partita).
+let helpBack = null;
+export function showHelp(back) {
+  if (ui.overlay && !back) return;
   const o = ov();
-  ui.overlay = 'start'; ui.paused = true; o.hidden = false;
-  o.innerHTML = `<div class="card" role="dialog" aria-labelledby="ovt">
-    <p class="eyebrow">Ottobre 1989 · Valle del Serra · Carta operativa n. ${S.seed % 10000}</p>
-    <h1 class="title" id="ovt">WARZONE <span>1989</span></h1>
-    <p class="brief">Il Direttorio Ferreo si è trincerato all’altro capo della valle e punta ai giacimenti di gasolio. Al comando della Brigata Aurora metti in funzione le pompe, ricerca nuove tecnologie, progetta i tuoi mezzi e distruggi il comando e le fabbriche nemiche.</p>
-    <p class="hint">Un clic su un tuo mezzo lo seleziona, un clic sulla mappa gli dà l’ordine. Il suono parte al primo tocco: lo spegni con «Suono» nella barra.</p>
-    <div class="diff"><span class="lbl">Avversario</span>${Object.entries(DIFF).map(([k, v]) => `<button class="btn ${ui.diff === k ? 'on' : ''}" data-diff="${k}">${v.label}</button>`).join('')}</div>
-    <div class="actions"><button class="primary" id="ovStart">Inizia l’operazione</button><button class="btn" id="ovMap">Cambia carta</button></div>
-    ${CONTROLS}
-  </div>`;
-  o.querySelectorAll('[data-diff]').forEach(b => b.addEventListener('click', () => { ui.diff = b.dataset.diff; o.querySelectorAll('[data-diff]').forEach(x => x.classList.toggle('on', x === b)); }));
-  $('ovMap').addEventListener('click', () => { startGame(ui.diff, randomSeed()); showStart(); });
-  $('ovStart').addEventListener('click', () => {
-    startGame(ui.diff, S.seed); closeOverlay();
-    toast('Sei nel settore B2. Manda i genieri sui giacimenti vicini.');
-  });
-  $('ovStart').focus();
-}
-export function showHelp() {
-  if (ui.overlay) return;
-  const o = ov();
-  ui.overlay = 'help'; o.hidden = false;
+  helpBack = back || null;
+  ui.overlay = 'help'; ui.paused = true; o.hidden = false;
+  const goal = S && S.objective ? `In questa missione: ${esc(S.objective.text)}.` : 'Vinci quando il nemico non ha più comando, fabbriche né genieri.';
   o.innerHTML = `<div class="card" role="dialog" aria-labelledby="ovt"><p class="eyebrow">Manuale da campo</p><h2 class="title" id="ovt" style="font-size:40px">Comandi</h2>
-  <p class="brief">Le pompe sui giacimenti producono il gasolio. Il laboratorio sblocca telai, propulsioni e armi; nella scheda Progetta li combini in un nuovo mezzo e la fabbrica lo produce. Vinci quando il nemico non ha più comando, fabbriche né genieri.</p>
+  <p class="brief">Le pompe sui giacimenti producono il gasolio. Il laboratorio sblocca telai, propulsioni e armi; nella scheda Progetta li combini in un nuovo mezzo e la fabbrica lo produce. ${back ? 'In schermaglia vinci quando il nemico non ha più comando, fabbriche né genieri; in campagna ogni missione ha il suo obiettivo.' : goal}</p>
   <div class="audioset"><span class="lbl">Suono</span><button class="btn" id="ovSound" aria-pressed="true">Acceso</button>
     <label for="ovVol">Volume</label><input type="range" id="ovVol" min="0" max="100" step="5"><output id="ovVolV">60%</output></div>
   <div class="audioset" role="group" aria-label="Qualità degli effetti"><span class="lbl">Effetti</span>${FX_OPTS.map(([k, l]) => `<button class="btn" data-fx="${k}">${l}</button>`).join('')}<output id="ovFxV"></output></div>
-  ${CONTROLS}<div class="actions"><button class="primary" id="ovClose">Torna alla partita</button></div></div>`;
+  ${CONTROLS}<div class="actions"><button class="primary" id="ovClose">${back ? 'Torna al menu' : 'Torna alla partita'}</button></div></div>`;
   $('ovSound').addEventListener('click', () => setSound(!soundOn()));
   $('ovVol').addEventListener('input', e => setVolume(e.target.value / 100));
   syncSound();
   o.querySelectorAll('[data-fx]').forEach(b => b.addEventListener('click', () => { setPref(b.dataset.fx); syncFx(); }));
   syncFx();
-  $('ovClose').addEventListener('click', closeOverlay); $('ovClose').focus();
+  $('ovClose').addEventListener('click', closeHelp); $('ovClose').focus();
 }
-export function showEnd(won) {
-  const o = ov();
-  ui.overlay = 'end'; o.hidden = false;
-  const st = S.stats;
-  o.innerHTML = `<div class="card" role="dialog" aria-labelledby="ovt" style="border-top-color:${won ? 'var(--olive)' : 'var(--brick)'}">
-    <p class="eyebrow">Rapporto finale · ${fmtTime(S.time)} · ${DIFF[S.diff].label}</p>
-    <h2 class="title" id="ovt">${won ? 'Valle <span>liberata</span>' : 'Brigata <span>sconfitta</span>'}</h2>
-    <p class="brief">${won ? 'Il comando e le fabbriche del Direttorio Ferreo sono fuori uso. I giacimenti della valle sono tuoi.' : 'Hai perso il comando, le fabbriche e tutti i genieri. Il Direttorio Ferreo controlla la valle.'}</p>
-    <div class="stats"><div><b>${st.made[P]}</b><span>Mezzi prodotti</span></div><div><b>${st.kills[P]}</b><span>Nemici distrutti</span></div><div><b>${st.lost[P]}</b><span>Perdite</span></div><div><b>${st.built[P]}</b><span>Edifici costruiti</span></div></div>
-    <div class="actions"><button class="primary" id="ovAgain">Nuova operazione</button><button class="btn" id="ovLook">Guarda la mappa</button></div>
-  </div>`;
-  $('ovAgain').addEventListener('click', () => { startGame(ui.diff, randomSeed()); showStart(); });
-  $('ovLook').addEventListener('click', () => { o.hidden = true; o.innerHTML = ''; ui.overlay = 'ended'; });
-}
+export function closeHelp() { const b = helpBack; helpBack = null; if (b) b(); else closeOverlay(); }
 export function closeOverlay() {
   const o = ov(); o.hidden = true; o.innerHTML = ''; ui.overlay = null; ui.paused = false;
   $('btnPause').textContent = 'Pausa'; $('btnPause').classList.remove('on'); ui.key = '';
 }
-export { randomSeed };

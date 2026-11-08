@@ -36,7 +36,9 @@ Codice JavaScript puro (moduli ES), senza DOM: gira nel browser e in Node. Si im
 | `orders.js` | ordini (muovi, attacca, costruisci, ferma), piazzamento, produzione, ricerca, smontaggio (`demolish`) |
 | `combat.js` | distanze, scelta dei bersagli, danno con corazza e modificatori dell'arma (`hitDamage`, `areaDamage`), colpi, proiettili (`tracer`, `shell`, `rocket`, `missile`, `mortar`), fiamma e riparazione |
 | `sim.js` | movimento, costruzione, produzione, torrette, officine, fine partita, `step(dt)` |
-| `ai.js` | IA del Direttorio Ferreo: pompe, edifici, ricerca, produzione, difesa, ondate; sceglie solo posti raggiungibili e smonta i cantieri bloccati da più di `AI_STALL` secondi |
+| `mission.js` | preparazione delle missioni della campagna, obiettivi (`S.objective`), ondate dai bordi, fine missione |
+| `campaign.js` | funzioni pure della campagna: `newCampaign`, `startMission`, `finishMission`, `campaignSummary`, `normalizeCampaign` |
+| `ai.js` | IA (per entrambi i lati, `aiTick(owner)`; il giocatore solo in autoplay per le simulazioni). Per il Direttorio Ferreo: pompe, edifici, ricerca, produzione, difesa, ondate; sceglie solo posti raggiungibili e smonta i cantieri bloccati da più di `AI_STALL` secondi |
 
 ### Livelli tecnologici e ricerche
 
@@ -73,7 +75,8 @@ proiettili in volo, che `loadState` rimette nell'array `proj`.
 | `research` | `{owner, id}` | una ricerca è completata |
 | `toast` | `{text, kind}` | avviso al giocatore (`kind`: vuoto, `warn`, `bad`) |
 | `ping` | `{x, y}` | segnale sulla minimappa |
-| `end` | `{won}` | fine partita |
+| `end` | `{won, reason}` (`objective`, `destroyed`, `time`) | fine partita o missione |
+| `objective` | `{type, progress, target, text, done}` | avanzamento dell'obiettivo di missione (al massimo 2 al secondo) |
 
 ## Client (`client/`)
 
@@ -84,10 +87,20 @@ proiettili in volo, che `loadState` rimette nell'array `proj`.
 | `state.js` | stato del solo client: selezione, camera, scheda attiva, effetti |
 | `render.js` | terreno, edifici, mezzi, effetti, nebbia, minimappa |
 | `input.js` | selezione, ordini, scorciatoie, touch e zoom |
-| `ui.js` | pannello (Costruisci, Produzione, Ricerca, Progetta), avvisi, copertina, rapporto finale |
+| `ui.js` | pannello (Costruisci, Produzione, Ricerca, Progetta), avvisi, barra |
+| `screens.js` | menu principale (Campagna, Schermaglia), elenco missioni, briefing, indicatore dell'obiettivo, rapporti di fine missione e di schermaglia, schermata finale, conferma d'uscita |
+| `campaign.js` | salvataggio della campagna sul dispositivo (`localStorage`, chiave `wz.campagna`) |
 | `audio.js` | suoni sintetizzati con Web Audio, posizionati rispetto alla visuale, con limite di voci; volume e acceso/spento salvati sul dispositivo |
 | `quality.js` | qualità adattiva degli effetti (alta, media, bassa): misura il tempo per fotogramma e regola particelle, tracce e risoluzione della tela; scelta «Effetti» salvata sul dispositivo |
 | `main.js` | collega eventi e moduli, ciclo di gioco, aggancio di test `window.__wz` (anche `fxq()` e `setFx()` per la qualità) |
+
+## Campagna
+
+`MISSIONS` in `engine/data.js` descrive le 8 missioni (briefing, obiettivo, livello massimo, seme e ritocchi della
+mappa, configurazione del giocatore e del nemico). `newGame(diff, seed, opts)` con `opts.mission`, `opts.tech` e
+`opts.designs` prepara una missione; senza `opts` è la schermaglia. Il client tiene lo stato della campagna (missioni
+vinte, ricerche e progetti accumulati, migliori tempi) e lo aggiorna con `finishMission` dopo ogni vittoria.
+`tests/balance/campagna.mjs` gioca la campagna con l'IA dalla parte del giocatore (`S.autoplay`) per il bilanciamento.
 
 ## Build
 

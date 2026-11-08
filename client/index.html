@@ -22,11 +22,16 @@
       <button class="btn" id="btnSpeed" title="Velocità di gioco">1×</button>
       <button class="btn" id="btnPause">Pausa</button>
       <button class="btn" id="btnHelp">Comandi</button>
+      <button class="btn" id="btnExit" title="Esci dalla partita e torna al menu">Menu</button>
     </div>
   </header>
   <div id="body">
     <main id="stage">
       <canvas id="view" aria-label="Mappa tattica"></canvas>
+      <div id="objective" hidden role="status" aria-live="polite">
+        <div class="oh"><span class="ok" id="objKind">Obiettivo</span><span class="ot" id="objText"></span></div>
+        <div class="obar"><i id="objBar"></i></div>
+      </div>
       <div id="touchbar" role="toolbar" aria-label="Ordini rapidi">
         <button class="btn touch-only" id="btnMode" aria-label="Sposta mappa" title="Sposta mappa"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 1.5v13M1.5 8h13M8 1.5 5.8 3.7M8 1.5l2.2 2.2M8 14.5l-2.2-2.2M8 14.5l2.2-2.2M1.5 8l2.2-2.2M1.5 8l2.2 2.2M14.5 8l-2.2-2.2M14.5 8l-2.2 2.2"/></svg><span>Mappa</span></button>
         <button class="btn" id="btnAmove" aria-label="Attacca-muovi" title="Attacca-muovi (A)"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="5"/><path d="M8 1v4M8 11v4M1 8h4M11 8h4"/></svg><span>Attacca</span></button>

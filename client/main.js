@@ -5,7 +5,8 @@ import { initRender, resize, renderTerrain, updateFogImage, spawnFx, updParts, r
 import { initAudio, fxSound, uiSfx, audioState } from './audio.js';
 import { frameTick, onQualityChange, qualityState, setPref } from './quality.js';
 import { initInput, camScroll } from './input.js';
-import { initUI, renderPanel, updateBar, toast, startGame, showStart, showEnd, randomSeed } from './ui.js';
+import { initUI, renderPanel, updateBar, toast, startGame, randomSeed } from './ui.js';
+import { initScreens, showStart, showEnd, showCampaign, showBrief, refreshObjective, resetObjectiveHud, limitText, missionIndex } from './screens.js';
 
 const cv = document.getElementById('view'), mini = document.getElementById('mini');
 initRender(cv, mini);
@@ -31,7 +32,8 @@ onEvent((type, d) => {
   else if (type === 'built') { structBuilt(d); if (d.owner === P) uiSfx('built'); }
   else if (type === 'research') { if (d.owner === P) uiSfx('research'); }
   else if (type === 'placed') structPlaced(d);
-  else if (type === 'end') showEnd(d.won);
+  else if (type === 'objective') refreshObjective(d);
+  else if (type === 'end') showEnd(d.won, d.reason);
 });
 
 let last = performance.now(), uiT = 0, mmT = 0;
@@ -58,7 +60,7 @@ function frame(now) {
   guard('camera', () => camScroll(dt));
   guard('disegno', () => render(now));
   if ((mmT -= dt) <= 0) { mmT = 0.1; guard('minimappa', renderMini); }
-  if ((uiT -= dt) <= 0) { uiT = 0.2; guard('pannello', () => { renderPanel(false); updateBar(); }); }
+  if ((uiT -= dt) <= 0) { uiT = 0.2; guard('pannello', () => { renderPanel(false); updateBar(); if (S && S.timeLimit) limitText(); }); }
   // qualità adattiva: conta i mezzi in campo due volte al secondo e misura il fotogramma solo a partita in corso
   const running = !!S && !ui.paused && !ui.overlay && S.phase === 'play';
   let units = null;
@@ -72,18 +74,24 @@ function start(data) {
   resize();
   initInput(cv, mini);
   initUI(cv);
+  initScreens();
   let restored = false;
+  const ctx = (data && data.ctx) || {};
   try {
-    if (data && data.S && data.S.ents) { loadState(data.S); if (data.cam) Object.assign(window.__wz.cam, data.cam); ui.diff = data.S.diff; restored = true; }
+    if (data && data.S && data.S.ents) { loadState(data.S); if (data.cam) Object.assign(window.__wz.cam, data.cam); if (!S.mission) ui.diff = data.S.diff; restored = true; }
   } catch (err) { restored = false; }
-  if (!restored) { startGame(ui.diff, randomSeed()); showStart(); }
+  if (restored) { ui.techBefore = Array.isArray(ctx.techBefore) ? ctx.techBefore : []; resetObjectiveHud(); }
+  // schermate fuori dalla partita: si torna alla stessa (il briefing riprepara la missione da capo)
+  if (!restored || ctx.ov === 'start') { if (!restored) startGame(ui.diff, randomSeed()); showStart(); }
+  else if (ctx.ov === 'campaign') showCampaign();
+  else if (ctx.ov === 'brief' && missionIndex() >= 0) showBrief(missionIndex());
   else if (S.phase === 'play') {
     ui.overlay = null; ui.paused = true;
     document.getElementById('overlay').hidden = true;
     document.getElementById('btnPause').textContent = 'Riprendi'; document.getElementById('btnPause').classList.add('on');
   } else showEnd(S.phase === 'won');
-  // Dentro l'anteprima di claude.ai la partita sopravvive agli aggiornamenti della pagina.
-  window.claude?.hot?.snapshot?.(() => S ? { S: serialize(), cam: { ...window.__wz.cam } } : {});
+  // Dentro l'anteprima di claude.ai la partita (anche una missione) sopravvive agli aggiornamenti della pagina.
+  window.claude?.hot?.snapshot?.(() => S ? { S: serialize(), cam: { ...window.__wz.cam }, ctx: { ov: ui.overlay, techBefore: ui.techBefore || [] } } : {});
   requestAnimationFrame(frame);
 }
 

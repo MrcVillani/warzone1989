@@ -6,7 +6,8 @@ import {
 import { ui, cam, view, hover, fxs } from './state.js';
 import { selUnits, selStructs, setSel } from './selection.js';
 import { screenToWorld, clampCam, centerOn, mark } from './render.js';
-import { toast, togglePause, closeOverlay } from './ui.js';
+import { toast, togglePause } from './ui.js';
+import { overlayEscape } from './screens.js';
 import { uiSfx } from './audio.js';
 
 // Entità sotto il punto. Su touch l'area dei mezzi è più ampia: almeno 22 px di raggio sullo schermo.
@@ -187,7 +188,7 @@ export function initInput(cv, mini) {
 
   window.addEventListener('keydown', e => {
     if (e.target.closest && e.target.closest('input,textarea')) return;
-    if (!S || ui.overlay) { if (e.key === 'Escape' && ui.overlay === 'help') closeOverlay(); return; }
+    if (!S || ui.overlay) { if (e.key === 'Escape') overlayEscape(); return; }
     const k = e.key, lk = k.toLowerCase();
     if (k === ' ') { spaceDown = true; e.preventDefault(); return; }
     if (k.startsWith('Arrow')) { keys.add(k); e.preventDefault(); return; }

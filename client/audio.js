@@ -242,6 +242,18 @@ const SFX = {
     noise(d, t, 'bandpass', 2000, 2000, 0.6, 0.02, 0.03, 0.95);
     return 1.05;
   } },
+  // obiettivo della missione: nuova fase (due note morbide sulla radio, discrete)
+  objStep: { g: 0.26, gap: 1.2, pr: true, ui: true, f(d, t) {
+    const r = radio(d, t, 0.42);
+    tone(r, t + 0.02, 'triangle', 587, 587, 0.01, 0.3, 0.16);
+    return tone(r, t + 0.2, 'triangle', 880, 880, 0.01, 0.3, 0.22) + 0.2;
+  } },
+  // obiettivo completato: accordo che sale e si apre, breve
+  objDone: { g: 0.3, gap: 2, pr: true, ui: true, f(d, t) {
+    let tt = t; for (const f of [392, 523, 659]) { tone(d, tt, 'triangle', f, f, 0.01, 0.26, 0.5); tt += 0.11; }
+    tone(d, tt, 'sine', 784, 784, 0.02, 0.3, 0.9); tone(d, tt, 'sine', 1568, 1568, 0.02, 0.05, 0.6);
+    return tt - t + 0.9;
+  } },
   // clic dell'interfaccia
   click: { g: 0.28, gap: 0.03, pr: true, ui: true, f(d, t) { tone(d, t, 'square', 2300, 1500, 0.001, 0.12, 0.018); return 0.03; } },
 };
