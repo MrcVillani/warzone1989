@@ -37,14 +37,14 @@ Richiesta del proprietario: migliorare la giocabilità da cellulare. Fastidi ind
 ### Note
 - Il computer non cambia: mouse e tastiera funzionano come oggi.
 - La vibrazione su Android richiede il permesso `VIBRATE` (concesso in automatico, senza richieste al giocatore); se non
-  c'è, il gioco funziona lo stesso. Da confermare con il proprietario.
+  c'è, il gioco funziona lo stesso. Approvato dal proprietario.
 
 ## Sotto-compiti
 
 | # | Agente | Compito |
 |---|---|---|
 | 1 | frontend | gesti (`client/input.js`), barra con squadre, Allarme e contatore, avvisi toccabili, frecce ai bordi, minimappa (`client/ui.js`, `client/render.js`, `client/style.css`) |
-| 2 | frontend | `android/`: permesso `VIBRATE`, se approvato |
+| 2 | frontend | `android/`: permesso `VIBRATE` (approvato) |
 | 3 | tester | prove nel browser con tocchi veri (anche a due dita, tramite il protocollo di Chromium): scorrimento con inerzia, zoom, tocco con aggancio, doppio tocco, tocco lungo e riquadro, squadre, avvisi toccabili, frecce, minimappa; computer invariato |
 
 Contratto con il motore: nessun cambiamento. Si parte dopo la colonna sonora (piano 03), che tocca gli stessi file.
