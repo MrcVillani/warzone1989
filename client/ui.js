@@ -1,12 +1,12 @@
 // Pannello comandi, barra superiore, avvisi, copertina e rapporto finale.
 import {
-  TILE, P, B0, CHASSIS, PROPS, WEAPONS, STRUCTS, BUILD_ORDER, TECH, TECH_BY, DIFF, BUILDER,
+  TILE, P, B0, CHASSIS, PROPS, WEAPONS, STRUCTS, BUILD_ORDER, TECH, TECH_BY, DIFF, BUILDER, TIERS, TIER_GATE, FAMILIES, BUNKER_W,
   S, ent, newGame, dStats, designName, armorOf, enqueue, cancelQueued, startResearch, pumpRate,
-  cmdStop, ftile, gridRef,
+  cmdStop, ftile, gridRef, tierAvail, tierDone, techBlockReason, towerWeapon, speedMul,
 } from '../engine/index.js';
 import { ui, cam, view, fxs, FACTION, PAL } from './state.js';
 import { selEnts, selUnits, setSel } from './selection.js';
-import { centerOn, screenToWorld, drawVehicle, hpColor } from './render.js';
+import { centerOn, screenToWorld, drawVehicle, vehicleExtent, hpColor } from './render.js';
 import { soundOn, setSound, getVolume, setVolume, onAudioChange, uiSfx } from './audio.js';
 import { selectArmy } from './input.js';
 
@@ -27,7 +27,7 @@ export function toast(text, kind) {
 export function startGame(diff, seed) {
   newGame(diff, seed);
   ui.sel = []; ui.groups = {}; ui.placing = null; ui.amove = false; ui.producer = 0; ui.tab = 'build';
-  ui.draft = { c: 'L', p: 'W', w: 'MG' }; ui.key = '';
+  ui.draft = { c: 'L', p: 'W', w: 'MG' }; ui.key = ''; ui.resFold = {};
   fxs.parts = []; fxs.fx = []; fxs.pings = []; fxs.boxSel = null;
   cam.z = view.cw < 520 ? 0.8 : 1;
   centerOnBase();
@@ -58,10 +58,10 @@ function partReady(kind, key) { const r = (kind === 'c' ? CHASSIS : kind === 'p'
 // Il pannello si ricostruisce solo quando cambia questa chiave; le barre di avanzamento si aggiornano a parte.
 function panelKey() {
   const r = Math.floor(S.res[P]);
-  const k = [ui.tab, ui.placing, ui.sel.join(','), selEnts().map(e => `${e.id}:${e.built}:${e.kind === 'unit' ? e.order.t : ''}`).join(',')];
-  if (ui.tab === 'build') k.push(selUnits().some(u => u.builder), S.tech[P].stRP, BUILD_ORDER.map(t => r >= STRUCTS[t].cost).join(''));
+  const k = [ui.tab, ui.placing, ui.sel.join(','), selEnts().map(e => `${e.id}:${e.built}:${e.kind === 'unit' ? e.order.t + (e.d && WEAPONS[e.d.w].heal && e.tgt ? 1 : 0) : ''}`).join(','), Object.keys(S.tech[P]).length];
+  if (ui.tab === 'build') k.push(selUnits().some(u => u.builder), Object.keys(S.tech[P]).join(','), BUILD_ORDER.map(t => r >= STRUCTS[t].cost).join(''));
   if (ui.tab === 'prod') { const ps = producers(); k.push(ui.producer, ps.map(p => `${p.id}:${p.built >= 1}:${p.queue.length}`).join(','), JSON.stringify(S.designs), S.designs.map(d => r >= dStats(d, P).cost).join(''), r >= BUILDER.cost); }
-  if (ui.tab === 'res') k.push(Object.keys(S.tech[P]).join(','), S.ents.filter(e => e.owner === P && e.type === 'lab' && !e.dead).map(l => `${l.id}:${l.built >= 1}:${l.rs ? l.rs.id : ''}`).join(','), TECH.map(t => r >= t.cost).join(''));
+  if (ui.tab === 'res') k.push(JSON.stringify(ui.resFold), Object.keys(S.tech[P]).join(','), S.ents.filter(e => e.owner === P && e.type === 'lab' && !e.dead).map(l => `${l.id}:${l.built >= 1}:${l.rs ? l.rs.id : ''}`).join(','), TECH.map(t => r >= t.cost).join(''));
   if (ui.tab === 'des') k.push(JSON.stringify(ui.draft), JSON.stringify(S.designs), Object.keys(S.tech[P]).join(','));
   return k.join('|');
 }
@@ -74,16 +74,19 @@ function htmlSel() {
     const sector = `<div><span>Settore</span><span>${e.kind === 'unit' ? gridRef(ftile(e.x), ftile(e.y)) : gridRef(e.tx, e.ty)}</span></div>`;
     if (e.kind === 'unit') {
       const nm = e.builder ? 'Geniere' : designName(e.d);
-      let kv = `<div><span>Corazza</span><span>${armorOf(e)}</span></div><div><span>Velocità</span><span>${Math.round(e.speed)}</span></div>`;
+      // corazza, velocità e danno includono le ricerche del lato (dStats con owner)
+      const st = e.builder ? null : dStats(e.d, e.owner);
+      let kv = `<div><span>Corazza</span><span>${armorOf(e)}</span></div><div><span>Velocità</span><span>${Math.round(st ? st.speed : e.speed * speedMul(e.owner))}</span></div>`;
       if (e.builder) kv += `<div><span>Compito</span><span>${e.order.t === 'build' ? 'cantiere' : e.order.t === 'move' ? 'in marcia' : 'fermo'}</span></div>`;
-      else { const W = WEAPONS[e.d.w]; kv += `<div><span>Arma</span><span>${W.short}</span></div><div><span>Gittata</span><span>${dec(W.range)}</span></div><div><span>Danno/s</span><span>${(W.dmg / W.rof).toFixed(0)}</span></div>`; }
+      else if (st.hps) kv += `<div><span>Ripara</span><span>${dec(st.hps)}/s</span></div><div><span>Compito</span><span>${e.tgt ? 'ripara' : 'in attesa'}</span></div>`;
+      else { const W = WEAPONS[e.d.w]; kv += `<div><span>Arma</span><span>${W.short}</span></div><div><span>Gittata</span><span>${rangeTxt(W)}</span></div><div><span>Danno/s</span><span>${st.dps.toFixed(0)}</span></div>`; }
       return `<div class="selhead"><span class="nm">${esc(nm)}</span>${tag}</div><div class="hpbar"><i data-hp="${e.id}"></i></div><div class="kv">${kv}${sector}</div>`;
     }
     const D = STRUCTS[e.type];
     let extra = '';
     if (e.built < 1) extra = `<div><span>Cantiere</span><span data-built="${e.id}">${Math.floor(e.built * 100)}%</span></div>`;
     else if (e.type === 'pump') extra = `<div><span>Resa</span><span>${dec(pumpRate(e.owner).toFixed(1))}/s</span></div>`;
-    else if (e.type === 'tower') extra = `<div><span>Arma</span><span>${S.tech[e.owner].twCN ? 'Cannone' : 'MG'}</span></div>`;
+    else if (e.type === 'tower' || e.type === 'bunker') { const W = e.type === 'bunker' ? BUNKER_W : towerWeapon(e.owner); extra = `<div><span>Arma</span><span>${W.short}</span></div><div><span>Gittata</span><span>${dec(W.range)}</span></div>`; }
     else if (e.type === 'factory' || e.type === 'hq') extra = `<div><span>Coda</span><span>${e.queue.length}/5</span></div>`;
     else if (e.type === 'lab') extra = `<div><span>Ricerca</span><span>${e.rs ? esc(TECH_BY[e.rs.id].name.split(' ')[0]) : 'libero'}</span></div>`;
     const hint = own && (e.type === 'factory' || e.type === 'hq') ? '<p class="hint small" style="margin-top:6px">Clicca sulla mappa per il punto di raduno.</p>' : '';
@@ -99,9 +102,12 @@ function htmlBuild() {
   h += '<div class="list">';
   for (const t of BUILD_ORDER) {
     const D = STRUCTS[t], locked = D.req && !S.tech[P][D.req], can = has && !locked && S.res[P] >= D.cost;
+    let ds = D.desc;
+    if (locked) { const R = TECH_BY[D.req]; ds = `Richiede la ricerca ${R.name} (livello ${TIERS[R.tier - 1]}).`; }
+    else if (t === 'tower') { const W = towerWeapon(P); ds = `Difesa fissa con ${W.name.toLowerCase()}. Gittata ${dec(W.range)} caselle.`; }
     h += `<button class="item ${ui.placing === t ? 'on' : ''}" data-act="place" data-type="${t}" ${can ? '' : 'disabled'}>
       <span class="fp">${D.w}×${D.h}</span><span class="nm">${D.name}</span><span class="cost">${D.cost}</span>
-      <span class="ds">${locked ? 'Richiede la ricerca ' + TECH_BY[D.req].name + '.' : D.desc}</span></button>`;
+      <span class="ds">${esc(ds)}</span></button>`;
   }
   return h + '</div><p class="hint small">Scorciatoia: con un geniere selezionato, clicca (o tocca) un giacimento libero per avviare subito una pompa, o un tuo edificio danneggiato per ripararlo.</p>';
 }
@@ -131,33 +137,56 @@ function htmlProd() {
   if (cur.type === 'factory') h += '<p class="hint small">I mezzi nascono dai progetti. Crea varianti nella scheda Progetta.</p>';
   return h;
 }
+// Gittata come testo; per le armi a tiro indiretto anche la distanza minima («2,5–9»).
+const rangeTxt = W => (W.minRange ? dec(W.minRange) + '–' : '') + dec(W.range);
+// Un livello è aperto per default se è sbloccato e non tutto completato; il giocatore può aprirlo o chiuderlo.
+function tierOpen(t) {
+  if (ui.resFold && ui.resFold[t] != null) return ui.resFold[t];
+  return tierAvail(P, t) && TECH.some(T => T.tier === t && !S.tech[P][T.id]);
+}
 function htmlRes() {
   const labs = S.ents.filter(e => !e.dead && e.owner === P && e.type === 'lab');
   const ready = labs.filter(l => l.built >= 1), free = ready.filter(l => !l.rs);
   let h = labs.length ? `<p class="hint">${ready.length} laboratori operativi, ${free.length} liberi. Ogni laboratorio porta avanti una ricerca alla volta.</p>` : '<p class="hint">Costruisci un laboratorio per avviare le ricerche.</p>';
-  h += '<div class="list">';
-  for (const T of TECH) {
-    const done = S.tech[P][T.id], lab = labs.find(l => l.rs && l.rs.id === T.id);
-    const reqOk = T.req.every(r => S.tech[P][r]);
-    let st, dis = true;
-    if (done) st = '<span class="st go">completata</span>';
-    else if (lab) st = `<span class="st" data-rp="${lab.id}">0%</span>`;
-    else if (!reqOk) st = `<span class="st">serve ${esc(T.req.map(r => TECH_BY[r].name.split(' ')[0]).join(', '))}</span>`;
-    else { st = `<span class="cost">${T.cost}</span>`; dis = !(free.length && S.res[P] >= T.cost); }
-    h += `<button class="item ${done ? 'done' : ''}" data-act="research" data-id="${T.id}" ${dis ? 'disabled' : ''}><span class="fp">${T.time}s</span><span class="nm">${esc(T.name)}</span>${st}<span class="ds">${esc(T.desc)}</span>${lab ? `<div class="prog"><i data-rb="${lab.id}"></i></div>` : ''}</button>`;
+  h += `<p class="hint small">Ogni livello si apre con ${TIER_GATE} ricerche completate del livello precedente.</p>`;
+  for (let t = 1; t <= TIERS.length; t++) {
+    const list = TECH.filter(T => T.tier === t); if (!list.length) continue;
+    const avail = tierAvail(P, t), open = tierOpen(t), done = tierDone(P, t);
+    const state = avail ? `aperto · ${done}/${list.length} completate` : `Servono ${TIER_GATE} ricerche di livello ${TIERS[t - 2]} (${Math.min(tierDone(P, t - 1), TIER_GATE)}/${TIER_GATE})`;
+    h += `<button class="tierh ${avail ? '' : 'locked'} ${open ? 'open' : ''}" data-act="tier" data-t="${t}" aria-expanded="${open}"><span class="tn">Livello ${TIERS[t - 1]}</span><span class="ts">${state}</span><span class="chev" aria-hidden="true"></span></button>`;
+    if (!open) continue;
+    h += '<div class="list">';
+    for (const T of list) {
+      const isDone = S.tech[P][T.id], lab = labs.find(l => l.rs && l.rs.id === T.id);
+      let st, cls = '', dis = true;
+      if (isDone) { st = 'Completata'; cls = 'go'; }
+      else if (lab) { st = `In corso · <span data-rp="${lab.id}">0%</span>`; cls = 'run'; }
+      else {
+        const why = techBlockReason(P, T.id);
+        if (why) { st = esc(avail ? why : T.req.filter(r => !S.tech[P][r]).length ? `Bloccata · serve ${T.req.filter(r => !S.tech[P][r]).map(r => TECH_BY[r].name).join(', ')}` : 'Bloccata · livello chiuso'); cls = 'no'; }
+        else {
+          dis = !(free.length && S.res[P] >= T.cost); cls = dis ? 'wait' : 'ok';
+          st = !ready.length ? 'Disponibile · serve un laboratorio' : !free.length ? 'Disponibile · laboratori occupati' : S.res[P] < T.cost ? 'Disponibile · gasolio insufficiente' : 'Disponibile';
+        }
+      }
+      h += `<button class="item rsch ${isDone ? 'done' : ''}" data-act="research" data-id="${T.id}" ${dis ? 'disabled' : ''}><span class="fp">${T.time}s</span><span class="nm">${esc(T.name)}</span><span class="cost">${T.cost}</span><span class="ds">${esc(T.desc)}</span><span class="stl ${cls}">${st}</span>${lab ? `<div class="prog"><i data-rb="${lab.id}"></i></div>` : ''}</button>`;
+    }
+    h += '</div>';
   }
-  return h + '</div>';
+  return h;
 }
 function htmlDes() {
-  const d = ui.draft, st = dStats(d, P);
-  const seg = (kind, table, title) => `<div class="sec">${title}</div><div class="seg">${Object.entries(table).map(([k, v]) => {
+  const d = ui.draft, st = dStats(d, P), W = WEAPONS[d.w];
+  // parti ordinate per livello; quelle da ricercare sono spente e mostrano il livello
+  const seg = (kind, table, title) => `<div class="sec">${title}</div><div class="seg">${Object.entries(table).sort((a, b) => a[1].tier - b[1].tier).map(([k, v]) => {
     const ok = partReady(kind, k);
-    const info = kind === 'c' ? `${v.hp} PS · ${v.cost}` : kind === 'p' ? `${Math.round(v.speed * 100)}% vel · ${v.cost}` : `gitt. ${dec(v.range)} · ${v.cost}`;
-    return `<button data-act="dpart" data-k="${kind}" data-v="${k}" class="${d[kind] === k ? 'on' : ''}" ${ok ? '' : 'disabled'}><span>${v.label || v.name}</span><small>${ok ? info : 'da ricercare'}</small></button>`;
+    const info = kind === 'c' ? `${v.hp} PS · ${v.cost}` : kind === 'p' ? `${Math.round(v.speed * 100)}% vel · ${v.cost}` : v.heal ? `ripara ${dec(v.heal)}/s · ${v.cost}` : `gitt. ${rangeTxt(v)} · ${v.cost}`;
+    return `<button data-act="dpart" data-k="${kind}" data-v="${k}" class="${d[kind] === k ? 'on' : ''}" ${ok ? '' : 'disabled'} title="${esc(v.name)}${ok ? '' : ' · livello ' + TIERS[v.tier - 1] + ', da ricercare'}"><span>${esc(v.label || v.name)}</span><small><b class="tr">${TIERS[v.tier - 1]}</b> ${ok ? info : 'da ricercare'}</small></button>`;
   }).join('')}</div>`;
   const exists = S.designs.some(x => x.c === d.c && x.p === d.p && x.w === d.w);
   let h = `<div class="preview"><canvas id="dprev" width="192" height="144"></canvas><div><div class="pn">${esc(designName(d))}</div><div class="pc">${st.cost} gasolio · ${st.time} s</div></div></div>`;
-  h += `<div class="kv"><div><span>Punti struttura</span><span>${st.hp}</span></div><div><span>Corazza</span><span>${st.armor}</span></div><div><span>Velocità</span><span>${Math.round(st.speed)}</span></div><div><span>Danno/s</span><span>${st.dps.toFixed(0)}</span></div><div><span>Gittata</span><span>${dec(st.range)}</span></div><div><span>Acqua</span><span>${PROPS[d.p].water ? 'sì' : 'no'}</span></div></div>`;
+  const fire = st.hps ? `<div><span>Ripara</span><span>${dec(st.hps)}/s</span></div>` : `<div><span>Danno/s</span><span>${st.dps.toFixed(0)}</span></div><div><span>Gittata</span><span>${rangeTxt(W)}</span></div>`;
+  h += `<div class="kv"><div><span>Punti struttura</span><span>${st.hp}</span></div><div><span>Corazza</span><span>${st.armor}</span></div><div><span>Velocità</span><span>${Math.round(st.speed)}</span></div>${fire}<div><span>Acqua</span><span>${PROPS[d.p].water ? 'sì' : 'no'}</span></div><div><span>Tipo</span><span>${FAMILIES[W.family] || '—'}</span></div></div>`;
   h += seg('c', CHASSIS, 'Telaio') + seg('p', PROPS, 'Propulsione') + seg('w', WEAPONS, 'Arma');
   h += `<button class="primary" data-act="dsave" ${exists || S.designs.length >= 8 ? 'disabled' : ''}>${exists ? 'Progetto già salvato' : S.designs.length >= 8 ? 'Massimo 8 progetti' : 'Salva il progetto'}</button>`;
   h += `<div class="sec">Progetti in produzione</div><div class="queue">${S.designs.map((x, i) => `<div class="qrow"><span>${esc(designName(x))} · ${dStats(x, P).cost}</span><button class="x" data-act="ddel" data-i="${i}" aria-label="Elimina progetto" ${S.designs.length <= 1 ? 'disabled' : ''}>×</button></div>`).join('')}</div>`;
@@ -170,8 +199,10 @@ function drawPreview() {
   g.strokeStyle = 'rgba(235,228,200,0.12)'; g.lineWidth = 1;
   for (let x = 0; x < c.width; x += 24) { g.beginPath(); g.moveTo(x + 0.5, 0); g.lineTo(x + 0.5, c.height); g.stroke(); }
   for (let y = 0; y < c.height; y += 24) { g.beginPath(); g.moveTo(0, y + 0.5); g.lineTo(c.width, y + 0.5); g.stroke(); }
-  g.translate(c.width / 2, c.height / 2); g.scale(3.2, 3.2);
-  drawVehicle(g, ui.draft, PAL[P], -0.5, -0.5 + Math.sin(performance.now() / 900) * 0.4, false, 0);
+  // il mezzo si inquadra con la canna: i telai grandi e le canne lunghe si rimpiccioliscono e si spostano indietro
+  const ex = vehicleExtent(ui.draft), half = (ex.back + ex.front) / 2 + 2, sc = Math.min(3.2, 74 / half), A = -0.5, mid = (ex.front - ex.back) / 2;
+  g.translate(c.width / 2 - Math.cos(A) * mid * sc, c.height / 2 - Math.sin(A) * mid * sc); g.scale(sc, sc);
+  drawVehicle(g, ui.draft, PAL[P], A, A + Math.sin(performance.now() / 900) * 0.3, false, 0);
 }
 export function renderPanel(force) {
   if (!S) return;
@@ -216,6 +247,7 @@ export function initUI(cv) {
       const free = S.ents.find(l => !l.dead && l.owner === P && l.type === 'lab' && l.built >= 1 && !l.rs);
       if (!free) toast('Nessun laboratorio libero.', 'warn'); else if (!startResearch(P, free, b.dataset.id)) toast('Gasolio insufficiente per questa ricerca.', 'warn');
     }
+    else if (a === 'tier') { const t = +b.dataset.t; ui.resFold = Object.assign({}, ui.resFold, { [t]: !tierOpen(t) }); }
     else if (a === 'dpart') ui.draft = Object.assign({}, ui.draft, { [b.dataset.k]: b.dataset.v });
     else if (a === 'dsave') { if (!S.designs.some(x => x.c === ui.draft.c && x.p === ui.draft.p && x.w === ui.draft.w) && S.designs.length < 8) { S.designs.push(Object.assign({}, ui.draft)); toast(`Progetto salvato: ${designName(ui.draft)}.`); } }
     else if (a === 'ddel') { if (S.designs.length > 1) S.designs.splice(+b.dataset.i, 1); }

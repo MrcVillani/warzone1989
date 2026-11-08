@@ -10,6 +10,7 @@
   --amber: #d39233;
   --amber-hi: #f0c27a;
   --brick: #c4594c;
+  --brick-hi: #e79a8f;
   --olive: #93a85c;
   --warn: #e2b84a;
   --glass: rgba(17, 20, 18, 0.58);
@@ -176,6 +177,30 @@ button { font: inherit; color: inherit; }
 .item.done { opacity: 0.55; }
 .item .st { font-family: var(--f-mono); font-size: 11px; color: var(--dim); text-align: right; }
 .item .st.go { color: var(--olive); }
+/* Scheda Ricerca: intestazioni dei livelli (si aprono e chiudono) e riga di stato di ogni voce. */
+.tierh {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 2px 10px;
+  width: 100%; text-align: left; cursor: pointer; margin-top: 2px;
+  background: #161a18; border: 1px solid var(--rule); border-left: 3px solid var(--olive); border-radius: 2px; padding: 7px 9px;
+}
+.tierh.locked { border-left-color: var(--rule); }
+.tierh:hover { border-color: var(--dim); }
+.tierh:focus-visible { outline: 2px solid var(--amber-hi); outline-offset: 1px; }
+.tierh .tn { font-family: var(--f-display); font-size: 15px; letter-spacing: 0.05em; color: var(--amber-hi); white-space: nowrap; }
+.tierh.locked .tn { color: var(--dim); }
+.tierh .ts { font-size: 11.5px; color: var(--dim); min-width: 0; }
+.tierh:not(.locked) .ts { color: var(--paper); }
+.tierh .chev { width: 8px; height: 8px; border-right: 1.5px solid var(--dim); border-bottom: 1.5px solid var(--dim); transform: rotate(-45deg); margin-right: 3px; transition: transform 0.15s; }
+.tierh.open .chev { transform: rotate(45deg); margin-bottom: 3px; }
+.item .stl { grid-column: 2 / 4; font-size: 11px; font-family: var(--f-mono); color: var(--dim); }
+.item .stl.go { color: var(--olive); }
+.item .stl.run { color: var(--amber-hi); }
+.item .stl.ok { color: var(--paper); }
+.item .stl.no { color: var(--brick-hi); }
+.item.rsch:disabled { opacity: 0.72; }
+.item.rsch.done { opacity: 0.55; }
+.item.rsch:disabled .nm { color: var(--dim); }
+.item.rsch.done .nm { color: var(--paper); }
 .prog { grid-column: 1 / -1; height: 4px; background: #0c0e0d; }
 .prog i { display: block; height: 100%; background: var(--amber); width: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -192,6 +217,8 @@ button { font: inherit; color: inherit; }
   text-align: left; font-size: 12px; display: flex; flex-direction: column; gap: 1px;
 }
 .seg button small { font-family: var(--f-mono); font-size: 10.5px; color: var(--dim); }
+.seg button small .tr { font-weight: 500; color: var(--amber-hi); border: 1px solid var(--rule); border-radius: 2px; padding: 0 3px; margin-right: 2px; }
+.seg button:disabled small .tr { color: var(--dim); }
 .seg button.on { border-color: var(--amber); background: rgba(211,146,51,0.14); }
 .seg button:disabled { opacity: 0.4; cursor: not-allowed; }
 .preview { display: flex; gap: 10px; align-items: center; background: #161a18; border: 1px solid var(--rule); padding: 8px; }
@@ -285,7 +312,7 @@ button { font: inherit; color: inherit; }
 }
 /* Schermi touch: bersagli di almeno 44 px ed etichette leggibili. */
 @media (pointer: coarse) {
-  .btn, .tabs button, .chip, .seg button, .primary { min-height: 44px; }
+  .btn, .tabs button, .chip, .seg button, .primary, .tierh { min-height: 44px; }
   .qrow .x { width: 44px; height: 44px; }
   .ro .k, .mm .cap, .sec, .diff .lbl, .tag { font-size: 11px; }
   .tabs button { font-size: 12.5px; }
@@ -296,4 +323,4 @@ button { font: inherit; color: inherit; }
   #touchbar .btn { flex-direction: column; gap: 3px; padding: 4px 6px; min-width: 52px; font-size: 11px; letter-spacing: 0.01em; }
   #touchbar .ic { width: 16px; height: 16px; }
 }
-@media (prefers-reduced-motion: reduce) { .toast { animation: none; } .tabs button { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .toast { animation: none; } .tabs button, .tierh .chev { transition: none; } }

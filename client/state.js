@@ -8,6 +8,8 @@ export const ui = {
   tab: 'build', placing: null, amove: false, mode: 'select', producer: 0,
   draft: { c: 'L', p: 'W', w: 'MG' }, key: '', paused: true, speed: 1, overlay: 'start',
   diff: 'normale', groups: {}, sel: [], lastGroup: null, lastGroupT: 0,
+  // resFold: livelli della scheda Ricerca aperti o chiusi dal giocatore (livello → true/false; se manca, default)
+  resFold: {},
 };
 export const cam = { x: 0, y: 0, z: 1 };
 export const view = { dpr: 1, cw: 800, ch: 600 };

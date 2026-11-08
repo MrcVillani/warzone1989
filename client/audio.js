@@ -119,6 +119,60 @@ const SFX = {
     noise(d, t, 'lowpass', 520, 140, 1, 0.003, 0.5, 0.22);
     return 0.35 + tone(d, t + 0.35, 'sine', 1750, 620, 0.12, 0.05, 1.0);
   } },
+  // mitragliatrice pesante: una canna sola, colpo più grave e corposo della binata
+  hmg: { g: 0.26, gap: 0.06, f(d, t) {
+    noise(d, t, 'bandpass', 1500, 650, 1.2, 0.001, 0.6, 0.07);
+    tone(d, t, 'square', 105, 42, 0.001, 0.16, 0.06);
+    return tone(d, t, 'sine', 160, 60, 0.001, 0.4, 0.08) + 0.04;
+  } },
+  // cannone 75: come il 40 ma più profondo e con la coda più lunga
+  cn75: { g: 0.52, gap: 0.08, f(d, t) {
+    noise(d, t, 'highpass', 2800, 2800, 0.7, 0.001, 0.4, 0.035);
+    tone(d, t, 'sine', 96, 28, 0.003, 0.95, 0.42);
+    return noise(d, t, 'lowpass', 1300, 120, 0.8, 0.004, 0.75, 0.75);
+  } },
+  // cannone 105: il più profondo, con una seconda onda di pressione
+  cn105: { g: 0.6, gap: 0.1, f(d, t) {
+    noise(d, t, 'highpass', 2400, 2400, 0.7, 0.001, 0.45, 0.04);
+    tone(d, t, 'sine', 78, 22, 0.003, 1, 0.55);
+    tone(d, t + 0.05, 'sine', 54, 24, 0.01, 0.5, 0.5);
+    return noise(d, t, 'lowpass', 1050, 90, 0.8, 0.005, 0.8, 0.95);
+  } },
+  // lanciafiamme: soffio breve che si apre, con il rombo della fiamma sotto
+  flame: { g: 0.3, gap: 0.16, f(d, t) {
+    noise(d, t, 'bandpass', 500, 1500, 0.8, 0.04, 0.55, 0.3);
+    return noise(d, t, 'lowpass', 420, 180, 0.9, 0.03, 0.6, 0.36);
+  } },
+  // modulo riparazione: ronzio elettrico leggero con qualche crepitio; molto discreto e raro
+  repair: { g: 0.06, gap: 1.4, f(d, t) {
+    const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 3; f.connect(d);
+    tone(f, t, 'sawtooth', 118, 122, 0.04, 0.5, 0.32);
+    tone(d, t, 'sine', 236, 236, 0.04, 0.12, 0.3);
+    for (let i = 0; i < 3; i++) noise(d, t + 0.05 + Math.random() * 0.25, 'highpass', 5200, 5200, 0.7, 0.001, 0.25, 0.012);
+    return 0.38;
+  } },
+  // missile anticarro: colpo di lancio e sibilo lungo del motore che si allontana
+  at: { g: 0.32, gap: 0.2, f(d, t) {
+    tone(d, t, 'sine', 140, 55, 0.002, 0.7, 0.16);
+    noise(d, t, 'lowpass', 1600, 300, 0.9, 0.003, 0.5, 0.22);
+    return noise(d, t + 0.05, 'bandpass', 2600, 1700, 3, 0.08, 0.32, 1.2) + 0.05;
+  } },
+  // obice: colpo molto profondo e fischio lungo della granata
+  hw: { g: 0.6, gap: 0.3, f(d, t) {
+    noise(d, t, 'highpass', 2000, 2000, 0.7, 0.001, 0.35, 0.05);
+    tone(d, t, 'sine', 56, 18, 0.004, 1, 0.9);
+    noise(d, t, 'lowpass', 700, 60, 0.8, 0.006, 0.85, 1.2);
+    return 0.55 + tone(d, t + 0.55, 'sine', 1400, 420, 0.2, 0.045, 1.6);
+  } },
+  // lanciarazzi multiplo: salva rapida di sei partenze
+  mrl: { g: 0.34, gap: 0.4, f(d, t) {
+    for (let i = 0; i < 6; i++) {
+      const ti = t + i * 0.075 + Math.random() * 0.015;
+      tone(d, ti, 'sine', 120, 50, 0.002, 0.35, 0.08);
+      noise(d, ti, 'bandpass', 800, 3000, 4, 0.03, 0.35, 0.32);
+    }
+    return 0.85;
+  } },
   // proiettile di cannone a segno: tonfo metallico corto
   hit: { g: 0.22, gap: 0.06, f(d, t) {
     noise(d, t, 'bandpass', 1300, 600, 2, 0.001, 0.5, 0.09);
@@ -135,6 +189,12 @@ const SFX = {
     noise(d, t, 'highpass', 2000, 2000, 0.7, 0.001, 0.3, 0.03);
     tone(d, t, 'sine', 90, 30, 0.003, 0.9, 0.5);
     return noise(d, t, 'lowpass', 1300, 120, 0.9, 0.004, 0.75, 0.75);
+  } },
+  // granata dell'obice a terra: la più grave, con la coda lunga
+  impHw: { g: 0.62, gap: 0.12, f(d, t) {
+    noise(d, t, 'highpass', 1800, 1800, 0.7, 0.001, 0.3, 0.04);
+    tone(d, t, 'sine', 62, 20, 0.004, 1, 0.8);
+    return noise(d, t, 'lowpass', 1100, 80, 0.9, 0.005, 0.85, 1.2);
   } },
   // esplosione di un mezzo
   boomUnit: { g: 0.72, gap: 0.06, f(d, t) {
@@ -225,17 +285,20 @@ export function sfx(name, x, y, owner) {
 // Suono dell'interfaccia: senza posizione.
 export function uiSfx(name) { if (ready()) start(name, 1, 0); }
 
+// Suono dello sparo per ogni arma (campo w dell'evento flash).
+const FLASH_SFX = { MG: 'mg', HMG: 'hmg', CN: 'cn', CN75: 'cn75', CN105: 'cn105', FL: 'flame', RK: 'rk', MRL: 'mrl', AT: 'at', MO: 'mo', HW: 'hw' };
 // Dagli eventi fx del motore ai suoni. I campi nuovi (w, owner, kind) possono mancare: si ripiega sulla taglia.
 export function fxSound(e) {
   if (!ready()) return;
   switch (e.k) {
     case 'flash': {
       const w = e.w || (e.s <= 3 ? 'MG' : 'CN');
-      sfx(w === 'MG' ? 'mg' : w === 'RK' ? 'rk' : w === 'MO' ? 'mo' : 'cn', e.x, e.y, e.owner); break;
+      sfx(FLASH_SFX[w] || 'cn', e.x, e.y, e.owner); break;
     }
+    case 'repair': sfx('repair', e.x2, e.y2, e.owner); break;
     case 'boom': {
       const kind = e.kind || (e.size >= 2 ? 'struct' : Math.abs(e.size - 0.9) < 0.01 ? 'unit' : 'shot');
-      sfx(kind === 'struct' ? 'boomStruct' : kind === 'unit' ? 'boomUnit' : e.size < 0.8 ? 'impRk' : 'impMo', e.x, e.y, kind === 'shot' ? undefined : e.owner);
+      sfx(kind === 'struct' ? 'boomStruct' : kind === 'unit' ? 'boomUnit' : e.size < 0.8 ? 'impRk' : e.size >= 1.5 ? 'impHw' : 'impMo', e.x, e.y, kind === 'shot' ? undefined : e.owner);
       break;
     }
     case 'hit': sfx('hit', e.x, e.y); break;
