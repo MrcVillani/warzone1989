@@ -4,10 +4,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  TILE, MW, MH, N, P, E, B0, B1, WATER, DIRT, DIFF, PUMP_RATE, MISSIONS, ENEMY_BASE2, TECH, TIERS,
+  TILE, MW, MH, N, P, E, B0, B1, WATER, DIRT, DIFF, MISSION_DIFF, PUMP_RATE, MISSIONS, ENEMY_BASE2, TECH, TIERS,
   S, newGame, genMap, missionMap, bfsReach, FORDS, LAKE_HALF, terr, deposits, occ, reachMap, reachableAdj,
   serialize, loadState, step, kill, makeStruct, alive, updateObjective, missionTick, techBlockReason, techAvail,
-  tierAvail, tierCap, startResearch, pumpRate, techSum, aiDesign, dStats, enqueue, onEvent,
+  tierAvail, tierCap, startResearch, pumpRate, techSum, aiDesign, aiTick, dStats, enqueue, onEvent, makeUnit, formation,
 } from '../index.js';
 import { findSpot, recordEvents, run, seedRandom, structs, units } from './helpers.js';
 
@@ -91,31 +91,192 @@ test('missione: nessun edificio sovrapposto, tutti dentro la mappa e su terreno 
   });
 });
 
-test('nemico della missione: valori «Veterano» a normale, scalati dalla difficoltà come in DIFF', () => {
-  const i = 1, en = at(i).enemy; // I pozzi del guado: ondate dalla base
-  const cfg = {};
-  for (const d of ['facile', 'normale', 'difficile']) {
-    mission(i, {}, d);
-    cfg[d] = S.ecfg;
-    assert.equal(S.ecfg.label, DIFF[d].label);
-    assert.equal(S.ai.nextAttack, S.ecfg.first);
-    assert.equal(S.ai.waveSize, S.ecfg.w0);
-    assert.ok(Math.abs(S.ecfg.inc - DIFF[d].inc * (en.inc ?? 1)) < 1e-9);
-    assert.ok(Math.abs(pumpRate(E) - PUMP_RATE * (1 + techSum(E, 'pump')) * S.ecfg.inc) < 1e-9, 'la rendita del nemico usa la missione');
-  }
-  assert.equal(cfg.normale.first, en.first);
-  assert.equal(cfg.normale.gap, en.gap);
-  assert.equal(cfg.normale.w0, en.w0);
-  assert.equal(cfg.normale.wmax, en.wmax);
-  assert.ok(cfg.facile.first > cfg.normale.first && cfg.normale.first > cfg.difficile.first);
-  assert.ok(cfg.facile.gap > cfg.normale.gap && cfg.normale.gap > cfg.difficile.gap);
-  assert.ok(cfg.facile.w0 <= cfg.normale.w0 && cfg.normale.w0 <= cfg.difficile.w0 && cfg.facile.w0 >= 1);
-  assert.ok(cfg.facile.wmax <= cfg.normale.wmax && cfg.normale.wmax <= cfg.difficile.wmax);
-  assert.ok(cfg.facile.rs > cfg.normale.rs && cfg.normale.rs > cfg.difficile.rs);
+test('MISSION_DIFF: Recluta scala piena, Veterano nessuna scala, Comandante una quota piccola; tutte le quote fra 0 e 1', () => {
+  assert.deepEqual(Object.keys(MISSION_DIFF).sort(), Object.keys(DIFF).sort());
+  assert.deepEqual(MISSION_DIFF.facile, { inc: 1, rs: 1, waves: 1 });
+  assert.deepEqual(MISSION_DIFF.normale, { inc: 0, rs: 0, waves: 0 });
+  assert.deepEqual(MISSION_DIFF.difficile, { inc: 0.1, rs: 0.25, waves: 0.2 });
+  for (const d in MISSION_DIFF) for (const k of ['inc', 'rs', 'waves']) assert.ok(MISSION_DIFF[d][k] >= 0 && MISSION_DIFF[d][k] <= 1, `${d}.${k}`);
+});
+
+// Configurazione attesa del nemico, scritta qui a parte dalla formula di mission.js: la differenza di ogni grandezza
+// di DIFF rispetto a «Veterano» vale solo per la quota MISSION_DIFF[d].
+function expectedEcfg(en, d) {
+  const D = DIFF[d], Nn = DIFF.normale, K = MISSION_DIFF[d], waves = en.waves || 'none';
+  const r = key => 1 + (D[key] / Nn[key] - 1) * K.waves;
+  return {
+    label: D.label,
+    inc: (1 + (D.inc - 1) * K.inc) * (en.inc ?? 1),
+    rs: (1 + (D.rs - 1) * K.rs) * (en.rs ?? 1),
+    first: waves === 'none' ? 1e9 : Math.round((en.first ?? Nn.first) * r('first')),
+    gap: Math.round((en.gap ?? Nn.gap) * r('gap')),
+    w0: Math.max(1, (en.w0 ?? Nn.w0) + Math.round((D.w0 - Nn.w0) * K.waves)),
+    wmax: Math.max(1, Math.round((en.wmax ?? Nn.wmax) * r('wmax'))),
+  };
+}
+
+test('nemico della missione: valori «Veterano» a normale, scalati dalla difficoltà secondo MISSION_DIFF', () => {
+  MISSIONS.forEach((M, i) => {
+    const en = M.enemy, cfg = {};
+    for (const d of ['facile', 'normale', 'difficile']) {
+      mission(i, {}, d);
+      cfg[d] = S.ecfg;
+      const want = expectedEcfg(en, d);
+      assert.equal(S.ecfg.label, want.label);
+      for (const k of ['inc', 'rs']) assert.ok(Math.abs(S.ecfg[k] - want[k]) < 1e-9, `${M.id} ${d} ${k}: ${S.ecfg[k]} invece di ${want[k]}`);
+      for (const k of ['first', 'gap', 'w0', 'wmax']) assert.equal(S.ecfg[k], want[k], `${M.id} ${d} ${k}`);
+      assert.equal(S.ecfg.factories, en.factories ?? 2, `${M.id} factories`);
+      assert.equal(S.ecfg.keep, en.keep ?? 0, `${M.id} keep`);
+      assert.equal(S.ai.nextAttack, S.ecfg.first);
+      assert.equal(S.ai.waveSize, S.ecfg.w0);
+      assert.ok(Math.abs(pumpRate(E) - PUMP_RATE * (1 + techSum(E, 'pump')) * S.ecfg.inc) < 1e-9, 'la rendita del nemico usa la missione');
+    }
+    // «Veterano»: i valori della missione così come sono
+    assert.ok(Math.abs(cfg.normale.inc - (en.inc ?? 1)) < 1e-9, `${M.id} inc a normale`);
+    assert.ok(Math.abs(cfg.normale.rs - (en.rs ?? 1)) < 1e-9, `${M.id} rs a normale`);
+    if ((en.waves || 'none') !== 'none') {
+      assert.equal(cfg.normale.first, en.first ?? DIFF.normale.first);
+      assert.equal(cfg.normale.gap, en.gap ?? DIFF.normale.gap);
+      assert.equal(cfg.normale.w0, en.w0 ?? DIFF.normale.w0);
+      assert.equal(cfg.normale.wmax, en.wmax ?? DIFF.normale.wmax);
+      // ordine fra le difficoltà: più facile = ondate più tardi, più rade, più piccole
+      assert.ok(cfg.facile.first > cfg.normale.first && cfg.normale.first > cfg.difficile.first, `${M.id} first`);
+      assert.ok(cfg.facile.gap > cfg.normale.gap && cfg.normale.gap > cfg.difficile.gap, `${M.id} gap`);
+      assert.ok(cfg.facile.w0 <= cfg.normale.w0 && cfg.normale.w0 <= cfg.difficile.w0 && cfg.facile.w0 >= 1, `${M.id} w0`);
+      assert.ok(cfg.facile.wmax < cfg.normale.wmax && cfg.normale.wmax < cfg.difficile.wmax, `${M.id} wmax`);
+    }
+    // ricerca più lenta e rendita più bassa da Recluta, più veloce e più alta da Comandante
+    assert.ok(cfg.facile.rs > cfg.normale.rs && cfg.normale.rs > cfg.difficile.rs, `${M.id} rs`);
+    assert.ok(cfg.facile.inc < cfg.normale.inc && cfg.normale.inc < cfg.difficile.inc, `${M.id} inc`);
+    // Recluta: scala piena come in DIFF (rendita e ricerca)
+    assert.ok(Math.abs(cfg.facile.inc - DIFF.facile.inc * (en.inc ?? 1)) < 1e-9);
+    assert.ok(Math.abs(cfg.facile.rs - DIFF.facile.rs * (en.rs ?? 1)) < 1e-9);
+    // Comandante: attenuato rispetto alla scala piena, ma più duro di Veterano
+    assert.ok(cfg.difficile.inc < DIFF.difficile.inc * (en.inc ?? 1), `${M.id} inc attenuata`);
+    assert.ok(cfg.difficile.rs > DIFF.difficile.rs * (en.rs ?? 1), `${M.id} rs attenuato`);
+    if ((en.waves || 'none') !== 'none') {
+      assert.ok(cfg.difficile.first > Math.round((en.first ?? DIFF.normale.first) * DIFF.difficile.first / DIFF.normale.first), `${M.id} prima ondata attenuata`);
+      assert.ok(cfg.difficile.wmax < Math.round((en.wmax ?? DIFF.normale.wmax) * DIFF.difficile.wmax / DIFF.normale.wmax), `${M.id} wmax attenuato`);
+    }
+  });
+  // valori esatti di una missione (I pozzi del guado: first 150, gap 90, w0 4, wmax 10)
+  const pick = c => [c.first, c.gap, c.w0, c.wmax];
+  mission(1, {}, 'facile'); assert.deepEqual(pick(S.ecfg), [206, 111, 3, 7]);
+  mission(1, {}, 'difficile'); assert.deepEqual(pick(S.ecfg), [141, 87, 4, 11]);
+  assert.ok(Math.abs(S.ecfg.inc - 1.03) < 1e-9 && Math.abs(S.ecfg.rs - 0.95) < 1e-9);
   // senza ondate la prima non arriva mai
   mission(0, {}, 'difficile');
   assert.equal(S.ecfg.waves, 'none');
   assert.ok(S.ai.nextAttack > 1e8);
+});
+
+test('schermaglia: la scala delle difficoltà resta quella piena di DIFF (MISSION_DIFF vale solo in missione)', () => {
+  for (const d of ['facile', 'normale', 'difficile']) {
+    newGame(d, 12345);
+    assert.equal(S.ecfg, undefined);
+    assert.equal(S.ai.nextAttack, DIFF[d].first);
+    assert.equal(S.ai.waveSize, DIFF[d].w0);
+    assert.ok(Math.abs(pumpRate(E) - PUMP_RATE * DIFF[d].inc) < 1e-9, `${d}: rendita del nemico ${pumpRate(E)}`);
+  }
+});
+
+/* ---------- nemico in missione: fabbriche e difensori che restano in base ---------- */
+
+test('enemy.factories 0 (Testa di ponte): i genieri dell’avamposto costruiscono, ma mai una fabbrica', () => {
+  const en = at(0).enemy;
+  assert.equal(en.factories, 0);
+  assert.equal(en.build, true);
+  // stessa partita, stessa casualità: con factories 0 nessuna fabbrica; con il valore predefinito (2) sì
+  const play = factories => {
+    const keep = en.factories;
+    if (factories === undefined) delete en.factories; else en.factories = factories;
+    const restore = seedRandom(5);
+    try {
+      mission(0);
+      assert.equal(S.ecfg.factories, factories ?? 2);
+      const towers0 = structs(E, 'tower').length, seen = new Set();
+      let firstFactory = null;
+      for (let t = 0; t < 400 && S.phase === 'play'; t++) {
+        run(1);
+        for (const e of S.ents) if (!e.dead && e.owner === E && e.kind === 'struct') {
+          seen.add(e.type);
+          if (e.type === 'factory' && firstFactory == null) firstFactory = S.time;
+        }
+      }
+      return { seen, firstFactory, pumps: structs(E, 'pump').length, towers0 };
+    } finally { restore(); en.factories = keep; }
+  };
+  const none = play(0);
+  assert.equal(none.firstFactory, null, 'nessuna fabbrica nemica, nemmeno in costruzione');
+  assert.ok(none.pumps > at(0).enemy.bases[0].pumps, `i genieri costruiscono comunque (pompe nemiche: ${none.pumps})`);
+  const two = play(undefined);
+  assert.ok(two.firstFactory != null && two.firstFactory < 200, 'controprova: senza factories 0 la fabbrica arriva presto');
+  assert.equal(en.factories, 0, 'i dati della missione tornano come prima');
+});
+
+// Difensori nemici in più accanto al comando, tutti con lo stesso progetto.
+function addEnemyDefenders(total) {
+  const [hq] = structs(E, 'hq');
+  const have = units(E, u => !u.builder).length;
+  const tiles = formation(hq.tx + 1, hq.ty + 5, total - have, false);
+  for (const [x, y] of tiles) makeUnit(E, { c: 'M', p: 'HT', w: 'CN' }, (x + 0.5) * TILE, (y + 0.5) * TILE);
+  const army = units(E, u => !u.builder);
+  assert.equal(army.length, total);
+  return army;
+}
+
+test('enemy.keep: quando parte un’ondata la quota keep dei difensori, i più nuovi, resta in base', () => {
+  const i = MISSIONS.findIndex(M => M.enemy.keep === 0.5); // La diga di Serra Alta
+  assert.ok(i >= 0);
+  mission(i);
+  assert.equal(S.ecfg.keep, 0.5);
+  const w0 = S.ecfg.w0;
+  // 13 difensori: ne restano floor(13 × 0,5) = 6, partono i 7 più vecchi
+  const army = addEnemyDefenders(13);
+  S.time = S.ai.nextAttack;
+  const ev = recordEvents();
+  aiTick(E);
+  ev.stop();
+  assert.equal(S.ai.wave, 1, 'l’ondata parte');
+  const byId = army.slice().sort((a, b) => a.id - b.id);
+  const atk = byId.filter(u => u.role === 'atk'), def = byId.filter(u => u.role === 'def');
+  assert.equal(def.length, 6);
+  assert.equal(atk.length, 7);
+  assert.deepEqual(atk.map(u => u.id), byId.slice(0, 7).map(u => u.id), 'partono i più vecchi');
+  assert.ok(atk.every(u => u.order.t !== 'idle'), 'chi parte ha un ordine');
+  assert.ok(ev.of('toast').some(t => /colonna nemica/.test(t.text)), 'avviso della colonna');
+  assert.ok(atk.length >= w0);
+});
+
+test('enemy.keep: l’ondata parte solo se i mezzi che partono (non tutti i difensori) bastano', () => {
+  const i = MISSIONS.findIndex(M => M.enemy.keep === 0.5);
+  mission(i);
+  const w0 = S.ecfg.w0;
+  // 2 × w0 − 2 difensori: ne partirebbero w0 − 1, troppo pochi
+  addEnemyDefenders(2 * w0 - 2);
+  S.time = S.ai.nextAttack;
+  aiTick(E);
+  assert.equal(S.ai.wave, 0, 'niente ondata');
+  assert.ok(units(E, u => !u.builder).every(u => u.role === 'def'));
+  // con due difensori in più ne partono w0
+  addEnemyDefenders(2 * w0);
+  aiTick(E);
+  assert.equal(S.ai.wave, 1);
+  assert.equal(units(E, u => u.role === 'atk').length, w0);
+  assert.equal(units(E, u => u.role === 'def').length, w0);
+});
+
+test('enemy.keep assente: parte tutto l’esercito, come in schermaglia', () => {
+  const i = MISSIONS.findIndex(M => M.enemy.waves === 'base' && !M.enemy.keep);
+  assert.ok(i >= 0);
+  mission(i);
+  assert.equal(S.ecfg.keep, 0);
+  addEnemyDefenders(13);
+  S.time = S.ai.nextAttack;
+  aiTick(E);
+  assert.equal(S.ai.wave, 1);
+  assert.equal(units(E, u => u.role === 'atk').length, 13);
+  assert.equal(units(E, u => u.role === 'def').length, 0);
 });
 
 test('newGame con opts.mission sconosciuta è un errore; con un id funziona come con l’indice', () => {
@@ -318,40 +479,44 @@ test('schermaglia identica a prima: newGame senza opzioni, con opzioni vuote o s
 
 test('outpost: pompe avviate (una volta per tutte), poi tutti gli edifici nemici; vittoria con reason objective', () => {
   mission(0);
-  const o = S.objective, st = enemyStructs().length;
-  assert.equal(o.need, at(0).objective.pumps);
-  assert.equal(o.text, `Pompe attive: 0/4 · edifici nemici rimasti: ${st}`);
-  assert.equal(o.target, 4 + st);
-  const pumps = playerPumps(3);
+  const o = S.objective, st = enemyStructs().length, need = at(0).objective.pumps;
+  assert.equal(need, 6, 'Testa di ponte: sei pompe');
+  assert.equal(o.need, need);
+  assert.equal(st, 15, 'avamposto: comando, 12 torrette e 2 pompe');
+  assert.equal(o.text, `Pompe attive: 0/${need} · edifici nemici rimasti: ${st}`);
+  assert.equal(o.target, need + st);
+  const pumps = playerPumps(need - 1);
   makeStruct('pump', P, ...(() => { const d = deposits.find(d => !occ[d.x + d.y * MW]); return [d.x, d.y]; })(), false); // in costruzione: non conta
   updateObjective();
-  assert.equal(o.progress, 3);
-  assert.equal(o.text, `Pompe attive: 3/4 · edifici nemici rimasti: ${st}`);
+  assert.equal(o.progress, need - 1);
+  assert.equal(o.text, `Pompe attive: ${need - 1}/${need} · edifici nemici rimasti: ${st}`);
   assert.equal(o.pumpsOk, false);
   // distruggere l'avamposto prima delle pompe non basta
   const outpost = enemyStructs();
   kill(outpost[0], P);
   updateObjective();
   assert.equal(o.killed, 1);
-  assert.equal(o.progress, 3 + 1);
-  assert.equal(o.target, 4 + st, 'il totale non cambia con le distruzioni');
+  assert.equal(o.progress, need - 1 + 1);
+  assert.equal(o.target, need + st, 'il totale non cambia con le distruzioni');
   pumps.push(...playerPumps(1));
   updateObjective();
   assert.equal(o.pumpsOk, true);
-  assert.equal(o.text, `Pompe avviate: 4/4 · edifici nemici rimasti: ${st - 1}`);
+  assert.equal(o.text, `Pompe avviate: ${need}/${need} · edifici nemici rimasti: ${st - 1}`);
   kill(pumps[0], E);
   updateObjective();
   assert.equal(o.pumpsOk, true, 'una pompa persa dopo non toglie il traguardo');
-  assert.equal(o.progress, 4 + 1);
+  assert.equal(o.progress, need + 1);
   assert.equal(o.done, false);
-  // i mezzi nemici non contano, gli edifici sì
+  // i mezzi nemici non contano, gli edifici sì. I genieri dell'avamposto (build: true, senza fabbriche) rimetterebbero
+  // subito una pompa o una torretta: si tolgono anche loro, così il passo dopo non ricomincia l'avamposto.
   const ev = recordEvents();
+  killAll(units(E, u => u.builder));
   killAll(enemyStructs());
   assert.ok(units(E).length > 0, 'restano mezzi nemici');
   updateObjective();
   assert.equal(o.done, true);
   assert.equal(o.progress, o.target);
-  assert.equal(o.text, 'Pompe avviate: 4/4 · edifici nemici rimasti: 0');
+  assert.equal(o.text, `Pompe avviate: ${need}/${need} · edifici nemici rimasti: 0`);
   run(1);
   ev.stop();
   assert.equal(S.phase, 'won');
@@ -363,7 +528,9 @@ test('outpost: pompe avviate (una volta per tutte), poi tutti gli edifici nemici
 test('hold: secondi consecutivi con le pompe attive; una pompa persa azzera; vittoria al tempo pieno', () => {
   mission(1);
   const o = S.objective, secs = at(1).objective.time, need = at(1).objective.pumps;
-  assert.equal(o.text, `Pompe attive: 0/${need} · tienile per 3:00`);
+  assert.equal(need, 8, 'I pozzi del guado: otto pompe');
+  assert.equal(secs, 540, 'per nove minuti');
+  assert.equal(o.text, `Pompe attive: 0/${need} · tienile per 9:00`);
   assert.equal(o.target, secs);
   const pumps = playerPumps(need);
   S.time = 50; updateObjective();
@@ -371,11 +538,11 @@ test('hold: secondi consecutivi con le pompe attive; una pompa persa azzera; vit
   assert.equal(o.progress, 0);
   S.time = 150.4; updateObjective();
   assert.equal(o.progress, 100);
-  assert.equal(o.text, `Pompe attive: ${need}/${need} · tienile per 1:20`);
+  assert.equal(o.text, `Pompe attive: ${need}/${need} · tienile per 7:20`);
   kill(pumps[0], E); updateObjective();
   assert.equal(o.progress, 0);
   assert.equal(o.since, null);
-  assert.equal(o.text, `Pompe attive: ${need - 1}/${need} · tienile per 3:00`);
+  assert.equal(o.text, `Pompe attive: ${need - 1}/${need} · tienile per 9:00`);
   playerPumps(1);
   S.time = 200; updateObjective();
   S.time = 200 + secs - 0.5; updateObjective();
@@ -393,7 +560,7 @@ test('hold: secondi consecutivi con le pompe attive; una pompa persa azzera; vit
 
 test('hold con la simulazione vera: il tempo tenuto cresce con S.time', () => {
   mission(1);
-  playerPumps(6);
+  playerPumps(at(1).objective.pumps);
   run(10.2);
   const o = S.objective;
   assert.ok(o.progress >= 9 && o.progress <= 10, `tenute ${o.progress} s`);
@@ -478,13 +645,39 @@ test('survive_then_destroy: fase 1 resisti, poi fase 2 distruggi; distruggere pr
   assert.deepEqual(ev.of('end'), [{ won: true, reason: 'objective' }]);
 });
 
-test('survive_then_destroy: con la base già distrutta in fase 1 si vince all’inizio della fase 2', () => {
+test('survive_then_destroy: con la base già distrutta in fase 1 si vince subito, senza aspettare la fase 2', () => {
   mission(6);
-  killAll(keyEnemies());
+  const o = S.objective, secs = at(6).objective.time, nKeys = keyEnemies().length;
   S.time = 200; missionTick();
-  assert.equal(S.phase, 'play');
-  S.time = at(6).objective.time; missionTick();
+  assert.equal(S.phase, 'play', 'con la base in piedi si resiste');
+  assert.equal(o.stage, 1);
+  const ev = recordEvents();
+  killAll(keyEnemies());
+  S.time = 201; missionTick();
+  ev.stop();
+  assert.ok(S.time < secs);
   assert.equal(S.phase, 'won');
+  assert.equal(o.done, true);
+  assert.equal(o.stage, 1, 'la vittoria arriva ancora in fase 1');
+  assert.equal(o.text, 'Base nemica distrutta');
+  assert.equal(o.progress, nKeys);
+  assert.equal(o.target, nKeys);
+  assert.deepEqual(ev.of('end'), [{ won: true, reason: 'objective' }]);
+  assert.equal(ev.of('toast').filter(t => /rinforzi/.test(t.text)).length, 0, 'nessun avviso dei rinforzi');
+  assert.deepEqual(ev.of('objective').at(-1), { type: 'survive_then_destroy', progress: nKeys, target: nKeys, text: 'Base nemica distrutta', done: true });
+});
+
+test('survive_then_destroy con la simulazione vera: la base distrutta in fase 1 chiude la missione al passo dopo', () => {
+  mission(6);
+  run(5);
+  assert.equal(S.phase, 'play');
+  const ev = recordEvents();
+  killAll(keyEnemies());
+  run(1);
+  ev.stop();
+  assert.ok(S.time < at(6).objective.time);
+  assert.equal(S.phase, 'won');
+  assert.deepEqual(ev.of('end'), [{ won: true, reason: 'objective' }]);
 });
 
 test('destroy: comandi, fabbriche e genieri; gli altri edifici e i mezzi non contano', () => {

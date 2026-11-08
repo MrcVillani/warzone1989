@@ -1,7 +1,7 @@
 // IA del Direttorio Ferreo: economia, ricerca, edifici, produzione e attacchi a ondate.
 // La stessa IA può guidare il lato del giocatore (aiTick(P), con S.autoplay): stato in S.aiP, tempi in AI_PLAYER;
 // in missione persegue l'obiettivo (in «tieni le pompe» e «resisti» difende e non attacca).
-import { TILE, MW, P, E, B0, B1, STRUCTS, CHASSIS, PROPS, WEAPONS, TECH_BY, AI_TECH, AI_STALL, AI_ARMY, AI_RECALL, AI_PLAYER, BUILDER, UNIT_CAP } from './data.js';
+import { TILE, MW, P, E, B0, B1, STRUCTS, CHASSIS, PROPS, WEAPONS, TECH_BY, AI_TECH, AI_TECH_P, AI_STALL, AI_ARMY, AI_RECALL, AI_PLAYER, BUILDER, UNIT_CAP } from './data.js';
 import { S, occ, idx, deposits, explored, emit, dStats, armorOf, enemyCfg, makeUnit } from './world.js';
 import { passable, nearestFree, reachMap, reachableAdj, formation } from './path.js';
 import { cmdMove, cmdBuild, canPlace, placeStruct, enqueue, techAvail, startResearch, demolish, unitCount } from './orders.js';
@@ -23,11 +23,14 @@ function aiSpot(o, type, base, forward, R, toward) {
 }
 // Progetto per la prossima produzione dell'IA: il telaio e la propulsione migliori che ha (con un po' di varietà),
 // un'arma principale forte; in piccola quota riparatori e artiglieria, anticarro quando il giocatore ha mezzi corazzati.
+// Il giocatore guidato dall'IA, se l'acqua allunga molto la strada verso il nemico (hoverUseful), fa hovercraft
+// per la quota AI_PLAYER.hover dei mezzi; il nemico non li usa (così la schermaglia resta quella di sempre).
 export function aiDesign(o) {
   const T = S.tech[o], r = Math.random;
   const c = T.chX && r() < 0.45 ? 'X' : T.chH && r() < 0.6 ? 'H' : T.chM && r() < 0.85 ? 'M' : 'L';
   const heavy = c === 'H' || c === 'X';
-  const p = T.prTR && heavy && r() < 0.55 ? 'TR' : T.prT && r() < (heavy ? 0.75 : 0.4) ? 'T' : T.prHT && r() < 0.85 ? 'HT' : 'W';
+  let p = T.prTR && heavy && r() < 0.55 ? 'TR' : T.prT && r() < (heavy ? 0.75 : 0.4) ? 'T' : T.prHT && r() < 0.85 ? 'HT' : 'W';
+  if (o === P && T.prV && hoverUseful(o) && r() < (AI_PLAYER.hover ?? 0.7)) p = 'V';
   let n = 0, sup = 0, art = 0, foes = 0, armored = 0;
   for (const e of S.ents) {
     if (e.dead || e.kind !== 'unit' || e.builder) continue;
@@ -50,6 +53,26 @@ export function aiDesign(o) {
   return { c, p, w };
 }
 const tileOf = u => [ftile(u.x), ftile(u.y)];
+// L'acqua allunga la strada via terra dalla base del lato verso il comando nemico più vicino di almeno
+// AI_PLAYER.hoverGain volte rispetto a quella sull'acqua (o la base si raggiunge solo dall'acqua). Si calcola una volta
+// per partita (il terreno non cambia) e resta nello stato dell'IA (campo hover).
+function hoverUseful(o) {
+  const ai = o === E ? S.ai : S.aiP;
+  if (!ai) return false;
+  if (ai.hover != null) return ai.hover;
+  const own = S.ents.find(e => !e.dead && e.owner === o && e.type === 'hq'), foe = S.ents.find(e => !e.dead && e.owner !== o && e.type === 'hq');
+  if (!own || !foe) return false;
+  const dist = water => {
+    const R = reachMap([[own.tx + 1, own.ty + 3]], water);
+    let best = 0;
+    for (let y = foe.ty - 2; y <= foe.ty + 4; y++) for (let x = foe.tx - 2; x <= foe.tx + 4; x++) {
+      const v = x >= 0 && y >= 0 && x < MW && R[x + y * MW]; if (v && (!best || v < best)) best = v;
+    }
+    return best;
+  };
+  const land = dist(false), wet = dist(true);
+  return (ai.hover = !!wet && (!land || land > wet * (AI_PLAYER.hoverGain ?? 1.6)));
+}
 // Il giacimento ha almeno una casella accanto raggiungibile da un geniere, contando la pompa già al suo posto.
 function depReachable(d, builders) {
   return reachableAdj(d.x, d.y, 1, 1, reachMap(builders.map(tileOf), false, d.x + d.y * MW)).length > 0;
@@ -89,8 +112,8 @@ function foeTarget(foe, fx, fy) {
   if (!best) for (const e of S.ents) { if (e.dead || e.owner !== foe) continue; const d = (e.x - fx) ** 2 + (e.y - fy) ** 2; if (d < bd) { bd = d; best = e; } }
   return best;
 }
-// Valore di un gruppo di mezzi: somma dei costi dei progetti. foeWorth: l'esercito del lato più metà delle sue
-// torrette e dei suoi bunker.
+// Valore di un gruppo di mezzi: somma dei costi dei progetti. foeWorth (lo usa solo il giocatore guidato dall'IA):
+// l'esercito del lato più le sue torrette e i suoi bunker, contati per AI_PLAYER.defW volte il loro costo.
 const unitWorth = u => u.builder ? 0 : CHASSIS[u.d.c].cost + PROPS[u.d.p].cost + WEAPONS[u.d.w].cost;
 const worth = list => list.reduce((a, u) => a + unitWorth(u), 0);
 function foeWorth(foe) {
@@ -98,7 +121,7 @@ function foeWorth(foe) {
   for (const e of S.ents) {
     if (e.dead || e.owner !== foe) continue;
     if (e.kind === 'unit') v += unitWorth(e);
-    else if ((e.type === 'tower' || e.type === 'bunker') && e.built >= 1) v += STRUCTS[e.type].cost * 0.5;
+    else if ((e.type === 'tower' || e.type === 'bunker') && e.built >= 1) v += STRUCTS[e.type].cost * (AI_PLAYER.defW ?? 0.5);
   }
   return v;
 }
@@ -165,8 +188,10 @@ export function aiTick(o = E) {
   // ricerca
   // Se un laboratorio resta libero per mancanza di gasolio, la produzione lascia da parte il costo della ricerca.
   let resReserve = 0;
+  // Il giocatore usa AI_TECH_P (tutte le ricerche) e, se servono gli hovercraft, li ricerca appena può.
+  const order = o === E ? AI_TECH : AI_TECH_P;
   for (const lab of structs.filter(s => s.type === 'lab' && s.built >= 1 && !s.rs)) {
-    const next = AI_TECH.find(id => techAvail(o, id));
+    const next = (o === P && techAvail(o, 'prV') && hoverUseful(o) ? 'prV' : null) || order.find(id => techAvail(o, id));
     if (next && res() >= TECH_BY[next].cost + 40) startResearch(o, lab, next);
     else if (next && army.length >= 3) resReserve = TECH_BY[next].cost;
   }
@@ -199,16 +224,19 @@ export function aiTick(o = E) {
     const reach = S.time > 420 || (o === P && S.objective && S.objective.type === 'hold') ? 40 : 28;
     const free = deposits.filter(d => !occ[d.x + d.y * MW] && !skip.includes(d.x + d.y * MW) && Math.hypot(d.x - base.x, d.y - base.y) < reach && !S.ents.some(e => e.owner === foe && !e.dead && e.kind === 'struct' && Math.hypot(e.x / TILE - d.x, e.y / TILE - d.y) < 8))
       .sort((a, c) => Math.hypot(a.x - base.x, a.y - base.y) - Math.hypot(c.x - base.x, c.y - base.y));
-    const dep = res() >= 50 ? free.find(depCheck) : null;
+    // Il giocatore guidato dall'IA, con quattro pompe e senza fabbrica, mette prima la fabbrica; con molto gasolio da
+    // parte non aspetta i cinque minuti per le altre fabbriche (fino a AI_PLAYER.factories).
+    const facFirst = o === P && count('factory') === 0 && count('pump') >= 4 && res() >= 200;
+    const dep = res() >= 50 && !facFirst ? free.find(depCheck) : null;
     // Il giocatore non può piazzare una pompa dove non ha mai visto: il geniere va prima a esplorare il giacimento.
     if (dep && o === P && !explored[dep.x + dep.y * MW]) { cmdMove([b], (dep.x + 0.5) * TILE, (dep.y + 1.5) * TILE, false); continue; }
     const towers = guard ? Math.min(8, 2 + Math.floor(S.time / 100)) : Math.min(6, 1 + Math.floor(S.time / 140));
     if (dep) plan = { type: 'pump', tx: dep.x, ty: dep.y };
-    else if (count('factory') === 0) { if (res() >= 200) plan = aiSpot(o, 'factory', base, false, reachB(), toward); }
+    else if (count('factory') === 0 && (D.factories ?? 2) > 0) { if (res() >= 200) plan = aiSpot(o, 'factory', base, false, reachB(), toward); }
     else if (count('lab') === 0 && S.time > 40) { if (res() >= 150) plan = aiSpot(o, 'lab', base, false, reachB(), toward); }
     else if (count('tower') < towers && res() >= 190) plan = aiSpot(o, 'tower', base, true, reachB(), toward);
     else if (S.tech[o].stBK && count('bunker') < Math.min(3, 1 + Math.floor((S.time - 300) / 240)) && res() >= 380) plan = aiSpot(o, 'bunker', base, true, reachB(), toward);
-    else if (count('factory') < (D.factories ?? 2) && S.time > 300 && res() >= 260) plan = aiSpot(o, 'factory', base, false, reachB(), toward);
+    else if (count('factory') < (D.factories ?? 2) && (S.time > 300 || (o === P && res() >= 600)) && res() >= 260) plan = aiSpot(o, 'factory', base, false, reachB(), toward);
     else if (S.tech[o].stRP && count('depot') === 0 && res() >= 220) plan = aiSpot(o, 'depot', base, false, reachB(), toward);
     else if (count('lab') < 2 && S.time > 420 && res() >= 260) plan = aiSpot(o, 'lab', base, false, reachB(), toward);
     if (plan) { const s = placeStruct(o, plan.type, plan.tx, plan.ty); if (s) { cmdBuild([b], s); unfinished.push(s); } }
@@ -245,7 +273,19 @@ export function aiTick(o = E) {
   const def = army.filter(u => u.role === 'def');
   const al = ai.alert, near = al && (hqs.length > 1 ? hqs.some(h => Math.hypot(al.x - h.x, al.y - h.y) < 20 * TILE) : Math.hypot(al.x / TILE - base.x, al.y / TILE - base.y) < 20);
   const alert = al && S.time - al.t < 4 && (near || (o === P && Math.hypot(al.x - rally[0], al.y - rally[1]) < 16 * TILE)) ? al : null;
+  // Il giocatore che deve tenere le pompe ripulisce i giacimenti della sua metà: un edificio nemico entro 9 caselle da
+  // un giacimento raggiungibile (a meno di 40 caselle dalla base) attira i difensori fermi, se sono almeno quattro.
+  let sweep = null;
+  if (!alert && guard && S.objective.type === 'hold' && def.length >= 4) {
+    let bd = 1e18;
+    for (const e of S.ents) {
+      if (e.dead || e.owner !== foe || e.kind !== 'struct') continue;
+      const d = Math.hypot(e.x / TILE - base.x, e.y / TILE - base.y);
+      if (d < 40 && d < bd && deposits.some(p => Math.hypot(p.x + 0.5 - e.x / TILE, p.y + 0.5 - e.y / TILE) < 9 && Math.hypot(p.x - base.x, p.y - base.y) < 40)) { bd = d; sweep = e; }
+    }
+  }
   if (alert) { for (const u of def) if (u.order.t !== 'amove' && u.order.t !== 'attack') cmdMove([u], alert.x, alert.y, true); }
+  else if (sweep) { const idle = def.filter(u => u.order.t === 'idle' || u.order.t === 'move'); if (idle.length) cmdMove(idle, sweep.x, sweep.y, true); }
   else for (const u of def) { const r = rallyFor(u); if (u.order.t === 'idle' && Math.hypot(u.x - r[0], u.y - r[1]) > 6 * TILE) cmdMove([u], r[0], r[1], true); }
   // Rinnovo dell'esercito al limite, quando il mezzo più vecchio è fatto di parti superate (l'IA ne ha già ricercate
   // di livello più alto): parte subito un'ondata con tutti i difensori, così l'esercito si consuma e la produzione
@@ -264,16 +304,21 @@ export function aiTick(o = E) {
     for (const u of old) { u.role = 'home'; cmdMove([u], rally[0], rally[1], false); }
   }
   // Il giocatore guidato dall'IA attacca solo se i difensori valgono (in gasolio) almeno AI_PLAYER.edge volte
-  // l'esercito nemico più metà delle sue difese fisse; al limite di mezzi attacca comunque.
+  // l'esercito nemico più le sue difese fisse (contate per AI_PLAYER.defW volte il costo); al limite di mezzi attacca
+  // comunque. Il primo attacco non parte prima di AI_PLAYER.first secondi.
   const strongEnough = o === E || armyN >= AI_ARMY || worth(def) >= (D.edge ?? 1.2) * foeWorth(foe);
-  if (waves === 'base' && !guard && ((S.time >= ai.nextAttack && def.length >= ai.waveSize && strongEnough) || renew)) {
+  // In missione il nemico può tenere in base una quota dei difensori (S.ecfg.keep, i più nuovi): l'ondata parte con gli
+  // altri. In schermaglia keep non c'è e parte tutto.
+  const keepN = o === E && D.keep ? Math.floor(def.length * D.keep) : 0;
+  const go = keepN ? def.slice().sort((a, b) => a.id - b.id).slice(0, def.length - keepN) : def;
+  if (waves === 'base' && !guard && ((S.time >= ai.nextAttack && go.length >= ai.waveSize && strongEnough) || renew)) {
     const tg = foeTarget(foe, base.x * TILE, base.y * TILE);
     if (tg) {
-      def.forEach(u => { u.role = 'atk'; });
-      cmdMove(def, tg.x, tg.y, true);
+      go.forEach(u => { u.role = 'atk'; });
+      cmdMove(go, tg.x, tg.y, true);
       ai.wave++; ai.waveSize = Math.min(D.wmax, D.w0 + ai.wave * (D.wstep ?? 2)); ai.nextAttack = S.time + D.gap;
       // L'avviso solo per una colonna vera: i pochi mezzi nuovi mandati avanti dal rinnovo non lo ripetono di continuo.
-      if (o === E && def.length >= D.w0) emit('toast', { text: 'Intercettazione radio: una colonna nemica si muove verso di te.', kind: 'warn' });
+      if (o === E && go.length >= D.w0) emit('toast', { text: 'Intercettazione radio: una colonna nemica si muove verso di te.', kind: 'warn' });
     }
   }
   for (const u of army) if (u.role === 'atk' && u.order.t === 'idle') { const tg = foeTarget(foe, u.x, u.y); if (tg) cmdMove([u], tg.x, tg.y, true); }

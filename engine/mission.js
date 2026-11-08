@@ -1,23 +1,27 @@
 // Missioni della campagna: preparazione della partita (basi, mezzi, ricerche del nemico), obiettivo e fine missione.
 // I dati delle missioni sono in MISSIONS (data.js); qui solo le regole.
-import { TILE, MW, MH, P, E, B0, B1, DIFF, TECH_BY } from './data.js';
+import { TILE, MW, MH, P, E, B0, B1, DIFF, MISSION_DIFF, TECH_BY } from './data.js';
 import { S, deposits, occ, emit, makeStruct, makeUnit } from './world.js';
 import { formation, reachMap, passable } from './path.js';
 import { canPlace } from './orders.js';
 import { alive } from './sim.js';
 
 /* ---------- preparazione ---------- */
-// Configurazione del nemico della missione, scalata dalla difficoltà come in DIFF (i valori della missione sono per
-// «Veterano»): S.ecfg = {label, inc, rs, first, gap, w0, wmax, wstep, build, waves, maxTier, factories}.
+// Configurazione del nemico della missione, scalata dalla difficoltà (i valori della missione sono per «Veterano»):
+// in missione la differenza di ogni grandezza di DIFF rispetto a «Veterano» vale solo per la quota in
+// MISSION_DIFF[diff] (per esempio rendita a «Comandante»: 1 + (1,3 − 1) × MISSION_DIFF.difficile.inc); a «Veterano»
+// i valori sono quelli della missione. S.ecfg = {label, inc, rs, first, gap, w0, wmax, wstep, build, waves, maxTier, factories, keep}.
 function enemyConfig(en, diff) {
-  const D = DIFF[diff], N = DIFF.normale, waves = en.waves || 'none';
+  const D = DIFF[diff], N = DIFF.normale, waves = en.waves || 'none', K = MISSION_DIFF[diff];
+  const ratio = (k, key) => 1 + (D[key] / N[key] - 1) * k;
   return {
-    label: D.label, inc: D.inc * (en.inc ?? 1), rs: D.rs * (en.rs ?? 1),
-    first: waves === 'none' ? 1e9 : Math.round((en.first ?? N.first) * D.first / N.first),
-    gap: Math.round((en.gap ?? N.gap) * D.gap / N.gap),
-    w0: Math.max(1, (en.w0 ?? N.w0) + D.w0 - N.w0),
-    wmax: Math.max(1, Math.round((en.wmax ?? N.wmax) * D.wmax / N.wmax)),
+    label: D.label, inc: (1 + (D.inc - 1) * K.inc) * (en.inc ?? 1), rs: (1 + (D.rs - 1) * K.rs) * (en.rs ?? 1),
+    first: waves === 'none' ? 1e9 : Math.round((en.first ?? N.first) * ratio(K.waves, 'first')),
+    gap: Math.round((en.gap ?? N.gap) * ratio(K.waves, 'gap')),
+    w0: Math.max(1, (en.w0 ?? N.w0) + Math.round((D.w0 - N.w0) * K.waves)),
+    wmax: Math.max(1, Math.round((en.wmax ?? N.wmax) * ratio(K.waves, 'wmax'))),
     wstep: en.wstep ?? 2, build: !!en.build, waves, maxTier: en.maxTier ?? 4, factories: en.factories ?? 2,
+    keep: en.keep ?? 0,
   };
 }
 // Primo posto libero (con una casella di margine) cercando a spirale attorno al punto (cx, cy) spostato di `fwd`
@@ -109,7 +113,8 @@ export function setupMission(M) {
    S.objective = {type, target, progress, done, failed, text} più i campi del tipo:
    outpost: need (pompe), pumpsOk (pompe avviate almeno una volta tutte insieme), killed;
    hold: need, secs, held (secondi consecutivi con almeno need pompe), since (inizio del tratto, o null);
-   survive: secs; survive_then_destroy: secs, stage (1 resisti, 2 distruggi), killed;
+   survive: secs; survive_then_destroy: secs, stage (1 resisti, 2 distruggi; la base distrutta già nella fase 1 vince
+   subito), killed;
    destroy: killed (comandi, fabbriche e genieri nemici distrutti); destroy_all_bases: bases ([{x, y, down}]).
    sent: ultimo testo mandato con l'evento objective. */
 function initObjective(spec, bases) {
@@ -183,7 +188,8 @@ export function updateObjective() {
         o.stage = 2;
         emit('toast', { text: 'I rinforzi sono arrivati: passa al contrattacco e distruggi la base nemica.', kind: 'warn' });
       }
-      if (o.stage === 1) {
+      // La base nemica distrutta già durante la resistenza vince subito la missione.
+      if (o.stage === 1 && alive(E)) {
         o.target = o.secs; o.progress = Math.floor(S.time);
         o.text = `Resisti ancora ${mmss(o.secs - S.time)}, poi distruggi la base`;
       } else {

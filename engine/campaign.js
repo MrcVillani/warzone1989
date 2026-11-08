@@ -48,10 +48,11 @@ export function startMission(camp, index, diff = 'normale', extra) {
 }
 // Nuovo stato della campagna dopo la partita S della missione `index`. Solo una vittoria cambia qualcosa: ricerche
 // completate e progetti salvati del giocatore si sommano a quelli della campagna, la missione è vinta, la successiva
-// è sbloccata e il tempo è il migliore se più basso. Non modifica `camp`.
+// è sbloccata e il tempo è il migliore se più basso. Conta solo una partita di questa missione: una schermaglia
+// (S.mission null) o una partita di un'altra missione non cambia nulla. Non modifica `camp`.
 export function finishMission(camp, index, S) {
   const c = normalizeCampaign(camp), i = indexOf(index), M = MISSIONS[i];
-  if (!M || !S || S.phase !== 'won' || (S.mission != null && S.mission !== M.id)) return c;
+  if (!M || !S || S.phase !== 'won' || S.mission !== M.id) return c;
   for (const id in S.tech[P]) if (S.tech[P][id] && TECH_BY[id]) c.tech[id] = true;
   c.designs = uniqDesigns(c.designs.concat(S.designs || []));
   if (!c.done.includes(M.id)) c.done = MISSIONS.map(m => m.id).filter(id => id === M.id || c.done.includes(id));

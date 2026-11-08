@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   P, E, MISSIONS, TECH, TECH_BY, DEFAULT_DESIGNS, S,
   newCampaign, normalizeCampaign, finishMission, nextCampaignState, campaignSummary, missionOpts, canPlayMission,
-  startMission, objectiveLabel, CAMPAIGN_VERSION,
+  startMission, objectiveLabel, CAMPAIGN_VERSION, newGame,
 } from '../index.js';
 
 const LMG = { c: 'L', p: 'W', w: 'MG' }, MCN = { c: 'M', p: 'HT', w: 'CN' }, HCN = { c: 'H', p: 'T', w: 'CN75' };
@@ -146,6 +146,23 @@ test('finishMission dopo una sconfitta, una partita in corso o di un’altra mis
   assert.deepEqual(finishMission(c, 99, fakeGame(2)), normalizeCampaign(c), 'missione sconosciuta');
 });
 
+test('finishMission con una schermaglia (S.mission null o assente) non cambia nulla, nemmeno se vinta', () => {
+  const c = deepFreeze({ ...newCampaign(), unlocked: 2, done: ['testa-di-ponte'], tech: { dMG1: true }, best: { 'testa-di-ponte': 400 } });
+  const tech = [{ chM: true, wCN: true, pump2: true }, {}], designs = [MCN, HCN];
+  for (const i of [0, 1, 7]) {
+    for (const g of [
+      fakeGame(i, { mission: null, tech, designs, time: 100 }),
+      fakeGame(i, { mission: undefined, tech, designs, time: 100 }),
+      (({ mission, ...rest }) => rest)(fakeGame(i, { tech, designs, time: 100 })),
+    ]) assert.deepEqual(finishMission(c, i, g), normalizeCampaign(c), `missione ${i + 1}, mission ${g.mission}`);
+  }
+  // partita vera di schermaglia, vinta
+  newGame('normale', 12345);
+  assert.equal(S.mission, null);
+  S.tech[P].chM = true; S.designs.push(MCN); S.time = 300; S.phase = 'won';
+  for (const i of [0, 1]) assert.deepEqual(finishMission(c, i, S), normalizeCampaign(c), `schermaglia passata come missione ${i + 1}`);
+});
+
 test('finishMission con la partita vera: dalla missione 1 vinta alla missione 2 con le ricerche fatte', () => {
   let c = newCampaign();
   startMission(c, 0);
@@ -244,7 +261,7 @@ test('campaignSummary: campagna nuova', () => {
   });
   assert.deepEqual(s.missions.map(m => m.tiers), ['I', 'I–II', 'I–II', 'I–III', 'I–III', 'I–III', 'I–IV', 'I–IV']);
   assert.deepEqual(s.missions.map(m => m.objectiveText), [
-    'Avvia 4 pompe e distruggi l’avamposto', 'Tieni 6 pompe per 3 minuti', 'Resisti 12 minuti', 'Distruggi la base nemica',
+    'Avvia 6 pompe e distruggi l’avamposto', 'Tieni 8 pompe per 9 minuti', 'Resisti 12 minuti', 'Distruggi la base nemica',
     'Distruggi la base nemica', 'Distruggi tutte le basi', 'Resisti 8 minuti, poi distruggi la base', 'Distruggi la base nemica',
   ]);
 });
