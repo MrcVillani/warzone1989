@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { mkdirSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
+import { runCommandChecks } from './comandi.mjs';
 
 // Playwright si carica con require: così vale anche l'installazione globale del sistema.
 const { chromium, devices } = createRequire(import.meta.url)('playwright');
@@ -88,6 +89,8 @@ for (const [name, opts] of profiles.filter(([n]) => !only || n === only)) {
   check(errors.length === 0, `${name}: nessun errore JavaScript${errors.length ? ': ' + errors.join(' | ') : ''}`);
   await page.close();
 }
+// Comandi con un clic, «Tutto l'esercito», Esc, pulsante «Suono» e «riduci movimento» (tests/e2e/comandi.mjs).
+await runCommandChecks({ browser, url, check, profiles: profiles.filter(([n]) => !only || n === only) });
 await browser.close();
 if (known.length) console.log(`\n${known.length} problemi noti (TODO), non bloccanti:\n- ${known.join('\n- ')}`);
 if (failures.length) { console.error(`\n${failures.length} controlli falliti.`); process.exit(1); }
