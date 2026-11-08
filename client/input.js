@@ -181,12 +181,45 @@ function touchBox(d) {
   fxs.boxSel = { sx, sy, x: d.x, y: d.y, long: d.state === 'long' };
   return fxs.boxSel;
 }
-// Lo scorrimento con il dito continua con la velocità degli ultimi ~100 ms e rallenta pian piano.
-function startInertia(d) {
-  const now = performance.now(), h = d.hist.filter(p => now - p.t <= 100);
-  if (h.length < 2) return;
-  const a = h[0], b = h[h.length - 1], dt = (b.t - a.t) / 1000; if (dt < 0.012) return;
-  let vx = (b.x - a.x) / dt, vy = (b.y - a.y) / dt; const v = Math.hypot(vx, vy);
+// Sopra questa velocità (px/s sullo schermo) la mappa scivola ancora: il dito che la ferma non vale come tocco.
+const HALT_V = 40;
+// Istante di un evento del dito: quello dell'evento (il momento vero del movimento, anche se il gestore arriva tardi
+// con i fotogrammi lenti), se è nella stessa scala di performance.now(); altrimenti adesso.
+function evTime(ev, now) { const t = ev && ev.timeStamp; return t > 0 && t <= now + 50 && now - t < 1000 ? t : now; }
+// Punti del dito in un pointermove: anche quelli accorpati dal browser tra un fotogramma e l'altro, se disponibili.
+function movePoints(e, now) {
+  const dx = e.offsetX - e.clientX, dy = e.offsetY - e.clientY;
+  let list = null; try { list = e.getCoalescedEvents ? e.getCoalescedEvents() : null; } catch (err) { list = null; }
+  if (!list || !list.length) list = [e];
+  return list.map(c => ({ t: evTime(c, now), x: c.clientX + dx, y: c.clientY + dy }));
+}
+function pushHist(d, pts) {
+  for (const p of pts) { const last = d.hist[d.hist.length - 1]; if (!last || p.t >= last.t) d.hist.push(p); }
+  const tl = d.hist[d.hist.length - 1].t;
+  while (d.hist.length > 2 && (tl - d.hist[0].t > 200 || d.hist.length > 64)) d.hist.shift();
+}
+// Lo scorrimento con il dito continua con la velocità degli ultimi ~100 ms e rallenta pian piano. La velocità è la
+// pendenza della retta dei minimi quadrati sui punti di quella finestra, pesati di più quelli recenti; se nella finestra
+// ci sono meno di 2 punti (fotogrammi lenti) bastano gli ultimi 2 entro 150 ms. Se il dito si è fermato prima di
+// alzarsi (pausa lunga rispetto al ritmo dei punti), la sua posizione all'alzata entra come punto fermo e la velocità cala.
+function startInertia(d, end) {
+  const h = d.hist.slice(), tEnd = end.t, last = h[h.length - 1];
+  if (!last) return;
+  // pausa = alzata molto più tardi dell'ultimo movimento rispetto al ritmo con cui arrivano i punti (≥ 40 ms)
+  const gaps = []; for (let i = 1; i < h.length; i++) gaps.push(h[i].t - h[i - 1].t);
+  const step = gaps.length ? gaps.sort((p, q) => p - q)[gaps.length >> 1] : 16;
+  if (tEnd - last.t > Math.max(40, 2.5 * step) || Math.hypot(end.x - last.x, end.y - last.y) > 0.5) h.push(end);
+  let w = h.filter(p => tEnd - p.t <= 100);
+  if (w.length < 2) { w = h.slice(-2); if (w.length < 2 || tEnd - w[0].t > 150) return; }
+  const t0 = w[0].t, span = (w[w.length - 1].t - t0) / 1000; if (span < 0.012) return;
+  let sw = 0, st = 0, sx = 0, sy = 0;
+  const wt = p => 1 + (p.t - t0) / 1000 / span; // da 1 (il più vecchio) a 2 (il più recente)
+  for (const p of w) { const k = wt(p), t = (p.t - t0) / 1000; sw += k; st += k * t; sx += k * p.x; sy += k * p.y; }
+  const mt = st / sw, mx = sx / sw, my = sy / sw;
+  let stt = 0, stx = 0, sty = 0;
+  for (const p of w) { const k = wt(p), t = (p.t - t0) / 1000 - mt; stt += k * t * t; stx += k * t * (p.x - mx); sty += k * t * (p.y - my); }
+  if (stt <= 0) return;
+  let vx = stx / stt, vy = sty / stt; const v = Math.hypot(vx, vy);
   if (v < 120) return;
   if (v > 4000) { vx *= 4000 / v; vy *= 4000 / v; }
   inertia = { vx, vy };
@@ -209,7 +242,9 @@ export function initInput(cv, mini) {
     cv.setPointerCapture(e.pointerId);
     const x = e.offsetX, y = e.offsetY;
     ptrs.set(e.pointerId, { x, y });
-    if (e.pointerType !== 'mouse') inertia = null;
+    // Il dito che ferma la mappa che scivola non vale come tocco (né ordine, né selezione, né doppio tocco).
+    let halted = false;
+    if (e.pointerType !== 'mouse') { halted = !!inertia && Math.hypot(inertia.vx, inertia.vy) > HALT_V; inertia = null; }
     if (ptrs.size === 2) {
       if (drag && drag.timer) clearTimeout(drag.timer);
       const [a, b] = [...ptrs.values()];
@@ -228,7 +263,7 @@ export function initInput(cv, mini) {
     } else {
       // Dito: scorre la mappa; fermo e veloce = tocco; fermo per LONG_MS = tocco lungo (poi trascinare = riquadro).
       const now = performance.now();
-      const d = { type: 'touch', state: 'press', sx: x, sy: y, x, y, cx: cam.x, cy: cam.y, hist: [{ t: now, x, y }], timer: 0 };
+      const d = { type: 'touch', state: 'press', sx: x, sy: y, x, y, cx: cam.x, cy: cam.y, hist: [{ t: evTime(e, now), x, y }], timer: 0, halted };
       d.timer = setTimeout(() => {
         if (drag !== d || d.state !== 'press') return;
         d.state = 'long'; d.timer = 0; buzz(20);
@@ -247,8 +282,7 @@ export function initInput(cv, mini) {
     if (drag.type === 'touch') {
       if (!ptrs.has(e.pointerId)) return;
       const d = drag, now = performance.now();
-      d.x = x; d.y = y; d.hist.push({ t: now, x, y });
-      while (d.hist.length > 2 && now - d.hist[0].t > 150) d.hist.shift();
+      d.x = x; d.y = y; pushHist(d, movePoints(e, now));
       const far = Math.hypot(x - d.sx, y - d.sy) > TAP_MOVE;
       if (d.state === 'press' && far) { clearTimeout(d.timer); d.timer = 0; d.state = 'pan'; }
       else if (d.state === 'long' && far) d.state = 'box';
@@ -266,7 +300,7 @@ export function initInput(cv, mini) {
     if (drag.type === 'pinch') {
       if (drag.dirty) applyPinch(drag);
       // tolto un dito, l'altro continua a scorrere la mappa senza scatti; niente tocco né riquadro
-      if (ptrs.size === 1) { const [p] = [...ptrs.values()], now = performance.now(); drag = { type: 'touch', state: 'pan', sx: p.x, sy: p.y, x: p.x, y: p.y, cx: cam.x, cy: cam.y, hist: [{ t: now, x: p.x, y: p.y }], timer: 0 }; }
+      if (ptrs.size === 1) { const [p] = [...ptrs.values()], now = performance.now(); drag = { type: 'touch', state: 'pan', sx: p.x, sy: p.y, x: p.x, y: p.y, cx: cam.x, cy: cam.y, hist: [{ t: now, x: p.x, y: p.y }], timer: 0, halted: false }; }
       else if (ptrs.size === 0) drag = null;
       return;
     }
@@ -274,9 +308,10 @@ export function initInput(cv, mini) {
       if (!had) return;
       const d = drag; drag = null; if (d.timer) clearTimeout(d.timer); fxs.boxSel = null;
       if (e.type === 'pointercancel') return;
-      if (d.state === 'pan') startInertia(d);
+      if (d.state === 'pan') startInertia(d, { t: evTime(e, performance.now()), x: d.x, y: d.y });
       else if (d.state === 'box') { if (!ui.placing) boxSelect(touchBox(d), false); fxs.boxSel = null; }
       else if (d.state === 'long') longTapAt(d.sx, d.sy);
+      else if (d.halted) lastTap = { t: 0, id: 0, x: 0, y: 0 };
       else tapAt(d.sx, d.sy);
       return;
     }
