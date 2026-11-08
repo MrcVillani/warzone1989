@@ -30,7 +30,16 @@ export function startGame(diff, seed) {
   ui.draft = { c: 'L', p: 'W', w: 'MG' }; ui.key = '';
   fxs.parts = []; fxs.fx = []; fxs.pings = []; fxs.boxSel = null;
   cam.z = view.cw < 520 ? 0.8 : 1;
-  centerOn(B0.x * TILE + 16, B0.y * TILE + 16);
+  centerOnBase();
+}
+// Centra la camera sul comando e sui genieri nella parte di mappa libera sopra la barra degli ordini rapidi.
+function centerOnBase() {
+  const own = S.ents.filter(e => !e.dead && e.owner === P);
+  let x0 = B0.x * TILE + 16, x1 = x0, y0 = B0.y * TILE + 16, y1 = y0;
+  for (const e of own) { x0 = Math.min(x0, e.x); x1 = Math.max(x1, e.x); y0 = Math.min(y0, e.y); y1 = Math.max(y1, e.y); }
+  const tb = $('touchbar'), st = $('stage');
+  const barH = tb && st ? Math.max(0, st.getBoundingClientRect().bottom - tb.getBoundingClientRect().top) : 0;
+  centerOn((x0 + x1) / 2, (y0 + y1) / 2 + barH / 2 / cam.z);
 }
 export function togglePause() {
   if (ui.overlay) return;
@@ -239,15 +248,15 @@ const CONTROLS = `<dl class="controls">
   <div><dt>Clic su un tuo mezzo</dt><dd>lo seleziona (anche un edificio); trascina per un riquadro</dd></div>
   <div><dt>Clic sulla mappa</dt><dd>con mezzi selezionati: muovi, attacca, costruisci, ripara (anche clic destro)</dd></div>
   <div><dt>Fabbrica + clic</dt><dd>con una fabbrica o il comando selezionati: punto di raduno</dd></div>
-  <div><dt>Esc</dt><dd>deseleziona (anche il pulsante «Deseleziona»)</dd></div>
-  <div><dt>Tutto l’esercito</dt><dd>seleziona tutti i tuoi mezzi armati</dd></div>
+  <div><dt>Esc</dt><dd>deseleziona (anche il pulsante «Nessuno» sulla mappa)</dd></div>
+  <div><dt>«Esercito»</dt><dd>il pulsante sulla mappa seleziona tutti i tuoi mezzi armati</dd></div>
   <div><dt>Doppio clic</dt><dd>tutti i mezzi uguali sullo schermo</dd></div>
   <div><dt>A, poi clic</dt><dd>attacca-muovi verso un punto</dd></div>
   <div><dt>S · H · P</dt><dd>ferma · torna al comando · pausa</dd></div>
   <div><dt>Ctrl+1–9 · 1–9</dt><dd>crea e richiama un gruppo</dd></div>
   <div><dt>Frecce · bordi</dt><dd>scorri la mappa (anche spazio o rotella premuta + trascina)</dd></div>
   <div><dt>Rotella</dt><dd>zoom</dd></div>
-  <div><dt>Touch</dt><dd>tocca un tuo mezzo, poi tocca la mappa per dargli un ordine. «Sposta mappa» per scorrere, due dita per lo zoom.</dd></div>
+  <div><dt>Touch</dt><dd>tocca un tuo mezzo, poi tocca la mappa per dargli un ordine. Il pulsante «Mappa» fa scorrere, due dita per lo zoom.</dd></div>
 </dl>`;
 const ov = () => $('overlay');
 const randomSeed = () => (Math.random() * 1e9) | 0;

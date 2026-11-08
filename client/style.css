@@ -12,6 +12,8 @@
   --brick: #c4594c;
   --olive: #93a85c;
   --warn: #e2b84a;
+  --glass: rgba(17, 20, 18, 0.58);
+  --glass-rule: rgba(162, 157, 136, 0.28);
   --f-display: 'Stardos Stencil', Impact, 'Arial Black', sans-serif;
   --f-body: 'IBM Plex Sans Condensed', 'Arial Narrow', 'Roboto Condensed', sans-serif;
   --f-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
@@ -86,14 +88,27 @@ button { font: inherit; color: inherit; }
 }
 #view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
 #view.pan { cursor: grab; }
+/* Ordini rapidi sopra la mappa: una riga sola, solo i pulsanti prendono i tocchi (lo spazio fra loro è mappa).
+   Se non ci stanno scorre la sola barra in orizzontale, mai su due righe. */
 #touchbar {
-  position: absolute; left: 8px; bottom: 8px; display: flex; gap: 6px; flex-wrap: wrap;
-  max-width: calc(100% - 16px);
+  position: absolute; left: 6px; bottom: 6px; max-width: calc(100% - 12px);
+  display: flex; flex-wrap: nowrap; gap: 4px;
+  overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+  pointer-events: none;
 }
-#touchbar .btn { background: rgba(28,33,30,0.88); font-size: 12px; padding: 6px 9px; }
-#touchbar .btn.on { background: var(--amber); }
-.touch-only { display: none; }
-@media (pointer: coarse) { .touch-only { display: inline-block; } }
+#touchbar::-webkit-scrollbar { display: none; }
+#touchbar .btn {
+  pointer-events: auto; flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  background: var(--glass); border-color: var(--glass-rule);
+  font-size: 12px; line-height: 1; padding: 5px 8px; white-space: nowrap;
+}
+#touchbar .btn:hover { border-color: var(--dim); }
+#touchbar .btn.on { background: var(--amber); border-color: var(--amber); }
+#touchbar .ic { width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+#touchbar .ic .fill { fill: currentColor; }
+.touch-only, #touchbar .touch-only { display: none; }
+@media (pointer: coarse) { #touchbar .touch-only { display: inline-flex; } }
 #toasts {
   position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
   display: flex; flex-direction: column; gap: 6px; align-items: center;
@@ -274,5 +289,11 @@ button { font: inherit; color: inherit; }
   .qrow .x { width: 44px; height: 44px; }
   .ro .k, .mm .cap, .sec, .diff .lbl, .tag { font-size: 11px; }
   .tabs button { font-size: 12.5px; }
+  #touchbar .btn { min-width: 48px; padding: 4px 9px; }
+}
+/* Touch e schermi stretti: icona sopra l'etichetta, pulsanti stretti; i cinque stanno su una riga anche in verticale. */
+@media (pointer: coarse), (max-width: 560px) {
+  #touchbar .btn { flex-direction: column; gap: 3px; padding: 4px 6px; min-width: 52px; font-size: 11px; letter-spacing: 0.01em; }
+  #touchbar .ic { width: 16px; height: 16px; }
 }
 @media (prefers-reduced-motion: reduce) { .toast { animation: none; } .tabs button { transition: none; } }
