@@ -7,12 +7,15 @@ import { ui, cam, view, hover, fxs } from './state.js';
 import { selUnits, selStructs, setSel } from './selection.js';
 import { screenToWorld, clampCam, centerOn, mark } from './render.js';
 import { toast, togglePause, closeOverlay } from './ui.js';
+import { uiSfx } from './audio.js';
 
-export function pickAt(wx, wy) {
+// Entità sotto il punto. Su touch l'area dei mezzi è più ampia: almeno 22 px di raggio sullo schermo.
+export function pickAt(wx, wy, touch) {
   let best = null, bd = 1e9;
+  const minR = touch ? 22 / cam.z : 0;
   for (const e of S.ents) {
     if (e.dead || e.kind !== 'unit' || (e.owner !== P && !canSee(P, e))) continue;
-    const d = Math.hypot(e.x - wx, e.y - wy); if (d < e.rad + 5 && d < bd) { bd = d; best = e; }
+    const d = Math.hypot(e.x - wx, e.y - wy); if (d < Math.max(e.rad + 5, minR) && d < bd) { bd = d; best = e; }
   }
   if (best) return best;
   for (const e of S.ents) {
@@ -22,33 +25,44 @@ export function pickAt(wx, wy) {
   return null;
 }
 // Ordine "intelligente" sul punto: attacca un nemico, costruisce/ripara, avvia una pompa, oppure muove.
-export function commandAt(wx, wy) {
+// Con solo una fabbrica o il comando selezionati imposta il punto di raduno.
+export function commandAt(wx, wy, touch) {
   const units = selUnits();
   if (!units.length) {
     const prods = selStructs().filter(s => s.type === 'factory' || s.type === 'hq');
-    if (prods.length) { prods.forEach(s => { s.rally = [wx, wy]; }); mark(wx, wy, '#f0c27a'); }
+    if (prods.length) { prods.forEach(s => { s.rally = [wx, wy]; }); mark(wx, wy, '#f0c27a'); uiSfx('ordMove'); }
     return;
   }
-  const hit = pickAt(wx, wy);
+  const hit = pickAt(wx, wy, touch);
   if (hit && hit.owner === E && canSee(P, hit)) {
     const armed = units.filter(u => !u.builder);
-    if (armed.length) { cmdAttack(armed, hit); mark(hit.x, hit.y, '#e0564a'); }
-    const b = units.filter(u => u.builder); if (b.length && !armed.length) cmdMove(b, wx, wy, false);
+    if (armed.length) { cmdAttack(armed, hit); mark(hit.x, hit.y, '#e0564a'); uiSfx('ordAttack'); }
+    const b = units.filter(u => u.builder); if (b.length && !armed.length) { cmdMove(b, wx, wy, false); uiSfx('ordMove'); }
     ui.amove = false; return;
   }
   const builders = units.filter(u => u.builder), rest = units.filter(u => !u.builder);
   if (hit && hit.owner === P && hit.kind === 'struct' && (hit.built < 1 || hit.hp < hit.max) && builders.length) {
-    cmdBuild(builders, hit); if (rest.length) cmdMove(rest, wx, wy, ui.amove); mark(hit.x, hit.y, '#93c86e'); ui.amove = false; return;
+    cmdBuild(builders, hit); if (rest.length) cmdMove(rest, wx, wy, ui.amove); mark(hit.x, hit.y, '#93c86e'); uiSfx('ordBuild'); ui.amove = false; return;
   }
   const tx = ftile(wx), ty = ftile(wy);
   if (builders.length && tx >= 0 && ty >= 0 && tx < MW && ty < MH && depIdx[tx + ty * MW] >= 0 && !occ[tx + ty * MW] && explored[tx + ty * MW]) {
     const s = placeStruct(P, 'pump', tx, ty);
-    if (s) { cmdBuild(builders, s); if (rest.length) cmdMove(rest, wx, wy, ui.amove); mark(s.x, s.y, '#93c86e'); ui.amove = false; return; }
+    if (s) { cmdBuild(builders, s); if (rest.length) cmdMove(rest, wx, wy, ui.amove); mark(s.x, s.y, '#93c86e'); uiSfx('ordBuild'); ui.amove = false; return; }
     if (S.res[P] < STRUCTS.pump.cost) toast('Servono 50 di gasolio per una pompa.', 'warn');
   }
   cmdMove(units, wx, wy, ui.amove);
   mark(wx, wy, ui.amove ? '#e0564a' : '#93c86e');
+  uiSfx(ui.amove ? 'ordAttack' : 'ordMove');
   ui.amove = false;
+}
+// Un clic su un proprio edificio dà l'ordine invece di selezionarlo solo se ci sono genieri selezionati e l'edificio
+// è un cantiere o è danneggiato (costruisci o ripara).
+const buildTarget = hit => hit && hit.owner === P && hit.kind === 'struct' && (hit.built < 1 || hit.hp < hit.max) && selUnits().some(u => u.builder);
+export function selectArmy() {
+  const ids = S.ents.filter(e => e.kind === 'unit' && e.owner === P && !e.dead && !e.builder).map(e => e.id);
+  setSel(ids); ui.placing = null; ui.amove = false;
+  if (!ids.length) toast('Non hai mezzi armati.', 'warn');
+  return ids.length;
 }
 function tryPlace(wx, wy) {
   const D = STRUCTS[ui.placing];
@@ -58,20 +72,18 @@ function tryPlace(wx, wy) {
   if (S.res[P] < D.cost) { toast(`Servono ${D.cost} di gasolio.`, 'warn'); return; }
   if (!canPlace(P, ui.placing, tx, ty)) { toast(ui.placing === 'pump' ? 'La pompa va su un giacimento libero ed esplorato.' : 'Qui non si può costruire: serve terreno libero ed esplorato.', 'warn'); return; }
   const s = placeStruct(P, ui.placing, tx, ty);
-  if (s) { cmdBuild(builders, s); mark(s.x, s.y, '#93c86e'); }
+  if (s) { cmdBuild(builders, s); mark(s.x, s.y, '#93c86e'); uiSfx('ordBuild'); }
   ui.placing = null; ui.key = '';
 }
+// Clic sinistro o tocco: su un proprio mezzo o edificio lo seleziona; altrove, con dei mezzi selezionati, dà l'ordine
+// (come il clic destro); con solo una fabbrica o il comando selezionati imposta il punto di raduno.
 function clickAt(px, py, touch, shift, dbl) {
   const w = screenToWorld(px, py);
   if (ui.placing) { tryPlace(w.x, w.y); return; }
-  if (ui.amove) { commandAt(w.x, w.y); return; }
-  const hit = pickAt(w.x, w.y);
-  if (touch) {
-    if (hit && hit.owner === P) { setSel([hit.id]); return; }
-    if (selUnits().length || selStructs().some(s => s.type === 'factory' || s.type === 'hq')) { commandAt(w.x, w.y); return; }
-    if (hit) setSel([hit.id]);
-    return;
-  }
+  if (ui.amove) { commandAt(w.x, w.y, touch); return; }
+  const hit = pickAt(w.x, w.y, touch);
+  const ownHit = hit && hit.owner === P && !buildTarget(hit);
+  if (!ownHit && (selUnits().length || selStructs().some(s => s.type === 'factory' || s.type === 'hq'))) { commandAt(w.x, w.y, touch); return; }
   if (hit) {
     if (hit.owner === P && dbl && hit.kind === 'unit') {
       const key = hit.builder ? 'B' : designName(hit.d);
@@ -82,6 +94,11 @@ function clickAt(px, py, touch, shift, dbl) {
     if (shift && hit.owner === P) { const i = ui.sel.indexOf(hit.id); const ns = ui.sel.slice(); if (i >= 0) ns.splice(i, 1); else ns.push(hit.id); setSel(ns); }
     else setSel([hit.id]);
   } else if (!shift) setSel([]);
+}
+// Deseleziona (Esc o pulsante «Deseleziona»): prima annulla un piazzamento o un attacca-muovi in corso.
+export function deselect() {
+  if (ui.placing || ui.amove) { ui.placing = null; ui.amove = false; ui.key = ''; return; }
+  setSel([]);
 }
 function boxSelect(b, shift) {
   const a = screenToWorld(Math.min(b.sx, b.x), Math.min(b.sy, b.y)), c = screenToWorld(Math.max(b.sx, b.x), Math.max(b.sy, b.y));
@@ -106,7 +123,7 @@ export function initInput(cv, mini) {
     if (e.pointerType === 'mouse') {
       if (e.button === 2) {
         if (ui.placing) { ui.placing = null; ui.key = ''; } else if (ui.amove) ui.amove = false;
-        else { const w = screenToWorld(x, y); commandAt(w.x, w.y); }
+        else { const w = screenToWorld(x, y); commandAt(w.x, w.y, false); }
         return;
       }
       if (e.button === 1 || spaceDown) { drag = { type: 'pan', sx: x, sy: y, cx: cam.x, cy: cam.y, moved: false }; cv.classList.add('pan'); e.preventDefault(); return; }
@@ -139,7 +156,7 @@ export function initInput(cv, mini) {
     if (e.type === 'pointercancel') return;
     if (d.type === 'box' && d.moved && !ui.placing) { boxSelect(d, d.shift); return; }
     if (!d.moved) {
-      const w = screenToWorld(d.sx, d.sy), hit = pickAt(w.x, w.y), now = performance.now();
+      const w = screenToWorld(d.sx, d.sy), hit = pickAt(w.x, w.y, d.touch), now = performance.now();
       const dbl = hit && lastClick.id === hit.id && now - lastClick.t < 350;
       lastClick = { t: now, id: hit ? hit.id : 0 };
       clickAt(d.sx, d.sy, d.touch, d.shift, dbl);
@@ -161,7 +178,7 @@ export function initInput(cv, mini) {
   mini.addEventListener('pointerdown', e => {
     if (!S || ui.overlay) return;
     const w = miniEvt(e);
-    if (e.button === 2) { const u = selUnits(); if (u.length) { cmdMove(u, w.x, w.y, ui.amove); ui.amove = false; } return; }
+    if (e.button === 2) { const u = selUnits(); if (u.length) { cmdMove(u, w.x, w.y, ui.amove); uiSfx(ui.amove ? 'ordAttack' : 'ordMove'); ui.amove = false; } return; }
     miniDrag = true; mini.setPointerCapture(e.pointerId); centerOn(w.x, w.y);
   });
   mini.addEventListener('pointermove', e => { if (miniDrag) { const w = miniEvt(e); centerOn(w.x, w.y); } });
@@ -174,7 +191,7 @@ export function initInput(cv, mini) {
     const k = e.key, lk = k.toLowerCase();
     if (k === ' ') { spaceDown = true; e.preventDefault(); return; }
     if (k.startsWith('Arrow')) { keys.add(k); e.preventDefault(); return; }
-    if (k === 'Escape') { ui.placing = null; ui.amove = false; ui.key = ''; return; }
+    if (k === 'Escape') { deselect(); return; }
     if (lk === 'a' && !e.ctrlKey && !e.metaKey) { if (selUnits().some(u => !u.builder)) ui.amove = true; return; }
     if (lk === 's' && !e.ctrlKey && !e.metaKey) { cmdStop(selUnits()); return; }
     if (lk === 'h') { const hq = S.ents.find(x => x.owner === P && x.type === 'hq' && !x.dead); if (hq) centerOn(hq.x, hq.y); return; }

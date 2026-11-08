@@ -1,19 +1,33 @@
 // Avvio del client: collega gli eventi del motore al disegno e all'interfaccia, poi fa girare il ciclo.
 import { P, S, ent, onEvent, step, loadState, serialize } from '../engine/index.js';
 import { ui, fxs } from './state.js';
-import { initRender, resize, renderTerrain, updateFogImage, spawnFx, updParts, render, renderMini } from './render.js';
+import { initRender, resize, renderTerrain, updateFogImage, spawnFx, updParts, render, renderMini, resetFx, unitSpawned, structPlaced, structBuilt } from './render.js';
+import { initAudio, fxSound, uiSfx, audioState } from './audio.js';
 import { initInput, camScroll } from './input.js';
 import { initUI, renderPanel, updateBar, toast, startGame, showStart, showEnd, randomSeed } from './ui.js';
 
 const cv = document.getElementById('view'), mini = document.getElementById('mini');
 initRender(cv, mini);
 
+initAudio();
+
 onEvent((type, d) => {
-  if (type === 'world') renderTerrain(S.seed);
+  if (type === 'world') { resetFx(); renderTerrain(S.seed); }
   else if (type === 'fog') updateFogImage();
-  else if (type === 'fx') spawnFx(d);
-  else if (type === 'toast') toast(d.text, d.kind);
+  else if (type === 'fx') { spawnFx(d); fxSound(d); }
+  else if (type === 'toast') {
+    toast(d.text, d.kind);
+    // allarme radio sul contatto nemico; i toast di «pronto» e «ricerca» fanno da riserva agli eventi dedicati
+    // (i suoni hanno un intervallo minimo, quindi non si sentono due volte)
+    if (d.kind === 'bad' && /^Contatto nemico/.test(d.text)) uiSfx('alarm');
+    else if (/^Ricerca completata/.test(d.text)) uiSfx('research');
+    else if (/ (pronto|pronta) nel settore/.test(d.text)) uiSfx('built');
+  }
   else if (type === 'ping') fxs.pings.push({ x: d.x, y: d.y, t: S.time });
+  else if (type === 'unit') { unitSpawned(d); if (d.owner === P) uiSfx('unitReady'); }
+  else if (type === 'built') { structBuilt(d); if (d.owner === P) uiSfx('built'); }
+  else if (type === 'research') { if (d.owner === P) uiSfx('research'); }
+  else if (type === 'placed') structPlaced(d);
   else if (type === 'end') showEnd(d.won);
 });
 
@@ -54,6 +68,6 @@ function start(data) {
 // Aggancio per i test end-to-end (Playwright): permette di avanzare la simulazione senza aspettare.
 import * as engine from '../engine/index.js';
 import { cam } from './state.js';
-window.__wz = { engine, ui, cam, get S() { return S; }, step: dt => step(dt), P };
+window.__wz = { engine, ui, cam, fxs, get S() { return S; }, step: dt => step(dt), P, audio: audioState };
 
 window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});

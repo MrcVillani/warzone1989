@@ -7,6 +7,8 @@ import {
 import { ui, cam, view, fxs, FACTION, PAL } from './state.js';
 import { selEnts, selUnits, setSel } from './selection.js';
 import { centerOn, screenToWorld, drawVehicle, hpColor } from './render.js';
+import { soundOn, setSound, getVolume, setVolume, onAudioChange, uiSfx } from './audio.js';
+import { selectArmy } from './input.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -56,7 +58,7 @@ function panelKey() {
 }
 function htmlSel() {
   const es = selEnts();
-  if (!es.length) return `<div class="selhead"><span class="nm">Nessuna selezione</span></div><p class="hint small" style="margin-top:6px">Trascina sulla mappa per selezionare i mezzi, oppure tocca un mezzo o un edificio.</p>`;
+  if (!es.length) return `<div class="selhead"><span class="nm">Nessuna selezione</span></div><p class="hint small" style="margin-top:6px">Clicca o tocca un tuo mezzo o edificio, oppure trascina un riquadro. Poi clicca sulla mappa per dare l’ordine.</p>`;
   if (es.length === 1) {
     const e = es[0], own = e.owner === P;
     const tag = `<span class="tag ${own ? 'p' : 'e'}">${FACTION[e.owner]}</span>`;
@@ -75,7 +77,7 @@ function htmlSel() {
     else if (e.type === 'tower') extra = `<div><span>Arma</span><span>${S.tech[e.owner].twCN ? 'Cannone' : 'MG'}</span></div>`;
     else if (e.type === 'factory' || e.type === 'hq') extra = `<div><span>Coda</span><span>${e.queue.length}/5</span></div>`;
     else if (e.type === 'lab') extra = `<div><span>Ricerca</span><span>${e.rs ? esc(TECH_BY[e.rs.id].name.split(' ')[0]) : 'libero'}</span></div>`;
-    const hint = own && (e.type === 'factory' || e.type === 'hq') ? '<p class="hint small" style="margin-top:6px">Clic destro sulla mappa per il punto di raduno.</p>' : '';
+    const hint = own && (e.type === 'factory' || e.type === 'hq') ? '<p class="hint small" style="margin-top:6px">Clicca sulla mappa per il punto di raduno.</p>' : '';
     return `<div class="selhead"><span class="nm">${D.name}</span>${tag}</div><div class="hpbar"><i data-hp="${e.id}"></i></div><div class="kv"><div><span>Corazza</span><span>${D.armor}</span></div>${sector}${extra}</div>${hint}`;
   }
   const groups = new Map();
@@ -92,7 +94,7 @@ function htmlBuild() {
       <span class="fp">${D.w}×${D.h}</span><span class="nm">${D.name}</span><span class="cost">${D.cost}</span>
       <span class="ds">${locked ? 'Richiede la ricerca ' + TECH_BY[D.req].name + '.' : D.desc}</span></button>`;
   }
-  return h + '</div><p class="hint small">Scorciatoia: con un geniere selezionato, clic destro (o tocco) su un giacimento libero per avviare subito una pompa. Clic destro su un tuo edificio danneggiato per ripararlo.</p>';
+  return h + '</div><p class="hint small">Scorciatoia: con un geniere selezionato, clicca (o tocca) un giacimento libero per avviare subito una pompa, o un tuo edificio danneggiato per ripararlo.</p>';
 }
 function htmlProd() {
   const ps = producers();
@@ -217,19 +219,35 @@ export function initUI(cv) {
   $('btnAmove').addEventListener('click', () => { if (selUnits().some(u => !u.builder)) ui.amove = !ui.amove; else toast('Seleziona dei mezzi armati.', 'warn'); });
   $('btnStop').addEventListener('click', () => cmdStop(selUnits()));
   $('btnDesel').addEventListener('click', () => { setSel([]); ui.placing = null; ui.amove = false; });
+  $('btnArmy').addEventListener('click', () => { if (S) selectArmy(); });
+  $('btnSound').addEventListener('click', () => setSound(!soundOn()));
+  onAudioChange(syncSound); syncSound();
+  // clic dell'interfaccia su ogni pulsante
+  document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('button'); if (b && !b.disabled) uiSfx('click'); });
+}
+function syncSound() {
+  const b = $('btnSound'), on = soundOn();
+  b.classList.toggle('off', !on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  b.title = on ? 'Suono acceso: tocca per spegnere' : 'Suono spento: tocca per accendere';
+  const sw = $('ovSound'); if (sw) { sw.textContent = on ? 'Acceso' : 'Spento'; sw.classList.toggle('on', on); sw.setAttribute('aria-pressed', on ? 'true' : 'false'); }
+  const v = $('ovVol'); if (v) { v.value = Math.round(getVolume() * 100); v.disabled = !on; }
+  const vv = $('ovVolV'); if (vv) vv.textContent = Math.round(getVolume() * 100) + '%';
 }
 
 /* ---------- copertina, aiuto, fine ---------- */
 const CONTROLS = `<dl class="controls">
-  <div><dt>Clic / trascina</dt><dd>seleziona mezzi ed edifici</dd></div>
-  <div><dt>Clic destro</dt><dd>muovi, attacca, costruisci, ripara</dd></div>
+  <div><dt>Clic su un tuo mezzo</dt><dd>lo seleziona (anche un edificio); trascina per un riquadro</dd></div>
+  <div><dt>Clic sulla mappa</dt><dd>con mezzi selezionati: muovi, attacca, costruisci, ripara (anche clic destro)</dd></div>
+  <div><dt>Fabbrica + clic</dt><dd>con una fabbrica o il comando selezionati: punto di raduno</dd></div>
+  <div><dt>Esc</dt><dd>deseleziona (anche il pulsante «Deseleziona»)</dd></div>
+  <div><dt>Tutto l’esercito</dt><dd>seleziona tutti i tuoi mezzi armati</dd></div>
   <div><dt>Doppio clic</dt><dd>tutti i mezzi uguali sullo schermo</dd></div>
   <div><dt>A, poi clic</dt><dd>attacca-muovi verso un punto</dd></div>
   <div><dt>S · H · P</dt><dd>ferma · torna al comando · pausa</dd></div>
   <div><dt>Ctrl+1–9 · 1–9</dt><dd>crea e richiama un gruppo</dd></div>
   <div><dt>Frecce · bordi</dt><dd>scorri la mappa (anche spazio o rotella premuta + trascina)</dd></div>
   <div><dt>Rotella</dt><dd>zoom</dd></div>
-  <div><dt>Touch</dt><dd>tocca un mezzo, poi tocca la mappa per dargli un ordine. «Sposta mappa» per scorrere, due dita per lo zoom.</dd></div>
+  <div><dt>Touch</dt><dd>tocca un tuo mezzo, poi tocca la mappa per dargli un ordine. «Sposta mappa» per scorrere, due dita per lo zoom.</dd></div>
 </dl>`;
 const ov = () => $('overlay');
 const randomSeed = () => (Math.random() * 1e9) | 0;
@@ -240,6 +258,7 @@ export function showStart() {
     <p class="eyebrow">Ottobre 1989 · Valle del Serra · Carta operativa n. ${S.seed % 10000}</p>
     <h1 class="title" id="ovt">WARZONE <span>1989</span></h1>
     <p class="brief">Il Direttorio Ferreo si è trincerato all’altro capo della valle e punta ai giacimenti di gasolio. Al comando della Brigata Aurora metti in funzione le pompe, ricerca nuove tecnologie, progetta i tuoi mezzi e distruggi il comando e le fabbriche nemiche.</p>
+    <p class="hint">Un clic su un tuo mezzo lo seleziona, un clic sulla mappa gli dà l’ordine. Il suono parte al primo tocco: lo spegni con «Suono» nella barra.</p>
     <div class="diff"><span class="lbl">Avversario</span>${Object.entries(DIFF).map(([k, v]) => `<button class="btn ${ui.diff === k ? 'on' : ''}" data-diff="${k}">${v.label}</button>`).join('')}</div>
     <div class="actions"><button class="primary" id="ovStart">Inizia l’operazione</button><button class="btn" id="ovMap">Cambia carta</button></div>
     ${CONTROLS}
@@ -258,7 +277,12 @@ export function showHelp() {
   ui.overlay = 'help'; o.hidden = false;
   o.innerHTML = `<div class="card" role="dialog" aria-labelledby="ovt"><p class="eyebrow">Manuale da campo</p><h2 class="title" id="ovt" style="font-size:40px">Comandi</h2>
   <p class="brief">Le pompe sui giacimenti producono il gasolio. Il laboratorio sblocca telai, propulsioni e armi; nella scheda Progetta li combini in un nuovo mezzo e la fabbrica lo produce. Vinci quando il nemico non ha più comando, fabbriche né genieri.</p>
+  <div class="audioset"><span class="lbl">Suono</span><button class="btn" id="ovSound" aria-pressed="true">Acceso</button>
+    <label for="ovVol">Volume</label><input type="range" id="ovVol" min="0" max="100" step="5"><output id="ovVolV">60%</output></div>
   ${CONTROLS}<div class="actions"><button class="primary" id="ovClose">Torna alla partita</button></div></div>`;
+  $('ovSound').addEventListener('click', () => setSound(!soundOn()));
+  $('ovVol').addEventListener('input', e => setVolume(e.target.value / 100));
+  syncSound();
   $('ovClose').addEventListener('click', closeOverlay); $('ovClose').focus();
 }
 export function showEnd(won) {
