@@ -3,6 +3,7 @@ import { P, S, ent, onEvent, step, loadState, serialize } from '../engine/index.
 import { ui, fxs } from './state.js';
 import { initRender, resize, renderTerrain, updateFogImage, spawnFx, updParts, render, renderMini, resetFx, unitSpawned, structPlaced, structBuilt } from './render.js';
 import { initAudio, fxSound, uiSfx, audioState } from './audio.js';
+import { frameTick, onQualityChange, qualityState, setPref } from './quality.js';
 import { initInput, camScroll } from './input.js';
 import { initUI, renderPanel, updateBar, toast, startGame, showStart, showEnd, randomSeed } from './ui.js';
 
@@ -10,6 +11,8 @@ const cv = document.getElementById('view'), mini = document.getElementById('mini
 initRender(cv, mini);
 
 initAudio();
+// cambio del livello di qualità: la tela della mappa prende la risoluzione del nuovo livello
+onQualityChange(() => resize());
 
 onEvent((type, d) => {
   if (type === 'world') { resetFx(); renderTerrain(S.seed); }
@@ -32,8 +35,9 @@ onEvent((type, d) => {
 });
 
 let last = performance.now(), uiT = 0, mmT = 0;
+let cntT = 0;
 function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const iv = now - last, dt = Math.min(0.05, iv / 1000), t0 = performance.now(); last = now;
   if (S && !ui.paused && !ui.overlay && S.phase === 'play') for (let k = 0; k < ui.speed; k++) step(dt);
   if (S && (!ui.paused || ui.overlay === 'ended')) updParts(dt);
   if (ui.sel.length && ui.sel.some(id => !ent(id))) ui.sel = ui.sel.filter(id => ent(id));
@@ -41,6 +45,11 @@ function frame(now) {
   render(now);
   if ((mmT -= dt) <= 0) { renderMini(); mmT = 0.1; }
   if ((uiT -= dt) <= 0) { renderPanel(false); updateBar(); uiT = 0.2; }
+  // qualità adattiva: conta i mezzi in campo due volte al secondo e misura il fotogramma solo a partita in corso
+  const running = !!S && !ui.paused && !ui.overlay && S.phase === 'play';
+  let units = null;
+  if (running && (cntT -= dt) <= 0) { cntT = 0.5; units = 0; for (const e of S.ents) if (e.kind === 'unit' && !e.dead) units++; }
+  if (running) frameTick(iv, performance.now() - t0, units);
   requestAnimationFrame(frame);
 }
 
@@ -68,6 +77,6 @@ function start(data) {
 // Aggancio per i test end-to-end (Playwright): permette di avanzare la simulazione senza aspettare.
 import * as engine from '../engine/index.js';
 import { cam } from './state.js';
-window.__wz = { engine, ui, cam, fxs, get S() { return S; }, step: dt => step(dt), P, audio: audioState };
+window.__wz = { engine, ui, cam, fxs, get S() { return S; }, step: dt => step(dt), P, audio: audioState, fxq: qualityState, setFx: setPref };
 
 window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});

@@ -4,6 +4,7 @@ import {
   S, terr, deposits, occ, vis, explored, proj, ent, canSee, canPlace, mulberry32, clamp, ftile, towerWeapon,
 } from '../engine/index.js';
 import { ui, cam, view, hover, fxs, PAL, reducedMotion } from './state.js';
+import { fxq } from './quality.js';
 
 let cv, ctx, mini, mctx, terrC = null, terrG = null, mmBase = null;
 const fogC = document.createElement('canvas'); fogC.width = MW; fogC.height = MH;
@@ -12,11 +13,14 @@ const fogG = fogC.getContext('2d'); const fogImg = fogG.createImageData(MW, MH);
 export function initRender(canvas, miniCanvas) { cv = canvas; ctx = cv.getContext('2d'); mini = miniCanvas; mctx = mini.getContext('2d'); }
 
 /* ---------- camera ---------- */
+// La tela della mappa usa al massimo la risoluzione del livello di qualità (in bassa meno pixel da riempire).
 export function resize() {
-  view.dpr = Math.min(2, window.devicePixelRatio || 1);
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  view.dpr = Math.min(dpr, fxq.q.res);
   const r = cv.getBoundingClientRect(); view.cw = Math.max(1, r.width); view.ch = Math.max(1, r.height);
-  cv.width = Math.round(view.cw * view.dpr); cv.height = Math.round(view.ch * view.dpr);
-  const m = mini.getBoundingClientRect(); mini.width = Math.round(Math.max(1, m.width) * view.dpr); mini.height = Math.round(Math.max(1, m.height) * view.dpr);
+  const w = Math.round(view.cw * view.dpr), h = Math.round(view.ch * view.dpr);
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  const m = mini.getBoundingClientRect(); mini.width = Math.round(Math.max(1, m.width) * dpr); mini.height = Math.round(Math.max(1, m.height) * dpr);
   clampCam();
 }
 export function clampCam() {
@@ -95,6 +99,8 @@ export function renderTerrain(seed) {
 }
 function scorch(x, y, r, a = 0.55) {
   if (!terrG) return;
+  // in bassa qualità un disco pieno e tenue al posto della sfumatura radiale
+  if (!fxq.q.glow) { terrG.fillStyle = `rgba(14,11,8,${(a * 0.45).toFixed(3)})`; terrG.beginPath(); terrG.arc(x, y, r * 0.7, 0, 7); terrG.fill(); return; }
   const gr = terrG.createRadialGradient(x, y, 0, x, y, r);
   gr.addColorStop(0, `rgba(14,11,8,${a})`); gr.addColorStop(1, 'rgba(14,11,8,0)');
   terrG.fillStyle = gr; terrG.beginPath(); terrG.arc(x, y, r, 0, 7); terrG.fill();
@@ -117,11 +123,14 @@ function makeGlow(stops) {
 const glowC = makeGlow([[0, 'rgba(255,240,200,1)'], [0.22, 'rgba(255,190,100,0.8)'], [0.55, 'rgba(235,120,45,0.28)'], [1, 'rgba(200,80,30,0)']]);
 const glowR = makeGlow([[0, 'rgba(225,255,240,1)'], [0.25, 'rgba(120,235,195,0.75)'], [0.6, 'rgba(60,170,170,0.22)'], [1, 'rgba(40,120,140,0)']]);
 const glow = (g, x, y, r, a, c = glowC) => { if (a <= 0.01) return; g.globalAlpha = Math.min(1, a); g.drawImage(c, x - r, y - r, r * 2, r * 2); };
-const MAXP = 700, MAXP_RM = 320, MAX_WRECKS = 40;
+const MAXP_RM = 320, MAX_WRECKS = 40;
+// Densità degli effetti: «Riduci movimento» la dimezza, il livello di qualità la riduce ancora.
+const dens = () => (reducedMotion() ? 0.5 : 1) * fxq.q.dens;
+const maybe = k => k >= 1 || Math.random() < k;
 const clock = () => performance.now() / 1000;
 // Nuova particella, se c'è posto (il limite tiene basso il costo per fotogramma).
 function addP(k, x, y, vx, vy, life, s, vz) {
-  const parts = fxs.parts; if (parts.length >= (reducedMotion() ? MAXP_RM : MAXP)) return;
+  const parts = fxs.parts, max = fxq.q.maxP; if (parts.length >= (reducedMotion() ? Math.min(MAXP_RM, max) : max)) return;
   parts.push({ k, x, y, vx, vy, life, max: life, s, z: 0, vz: vz || 0 });
 }
 function nearView(x, y, m) { const vw = view.cw / cam.z, vh = view.ch / cam.z; return x > cam.x - m && x < cam.x + vw + m && y > cam.y - m && y < cam.y + vh + m; }
@@ -130,7 +139,7 @@ function seenAt(x, y) { const tx = ftile(x), ty = ftile(y); return tx >= 0 && ty
 const boomKind = e => e.kind || (e.size >= 2 ? 'struct' : Math.abs(e.size - 0.9) < 0.01 ? 'unit' : 'shot');
 
 function boom(x, y, size, kind) {
-  const rm = reducedMotion(), q = rm ? 0.5 : 1, { fx } = fxs;
+  const rm = reducedMotion(), q = dens(), full = fxq.q.glow, { fx } = fxs;
   if (kind === 'unit') {
     if (fxs.wrecks.length >= MAX_WRECKS) fxs.wrecks.shift();
     fxs.wrecks.push({ x, y, a: Math.random() * 7, t: 0, life: rm ? 4 : 7, ph: Math.random() * 6 });
@@ -143,7 +152,7 @@ function boom(x, y, size, kind) {
   if (!nearView(x, y, 160)) return;
   const L = 0.16 + 0.08 * size;
   fx.push({ k: 'light', x, y, life: L, max: L, s: 26 * size });
-  fx.push({ k: 'shock', x, y, life: 0.3, max: 0.3, s: 20 * size });
+  if (full || kind !== 'shot') fx.push({ k: 'shock', x, y, life: 0.3, max: 0.3, s: 20 * size });
   fx.push({ k: 'ring', x, y, life: 0.4, max: 0.4, s: 12 * size });
   const n = Math.round(7 * size * q), long = kind === 'struct' ? 2 : 1;
   for (let i = 0; i < n; i++) {
@@ -156,7 +165,7 @@ function boom(x, y, size, kind) {
   if (kind === 'shot' && size >= 1.5) {
     // granata dell'obice: cratere annerito, anello di polvere e colonna di fumo che sale
     scorch(x, y, 15 * size, 0.6);
-    fx.push({ k: 'shock', x, y, life: 0.45, max: 0.45, s: 30 * size });
+    if (full) fx.push({ k: 'shock', x, y, life: 0.45, max: 0.45, s: 30 * size });
     for (let i = 0; i < 8 * q; i++) { const a = i / (8 * q) * Math.PI * 2; addP('dust', x + Math.cos(a) * 6, y + Math.sin(a) * 5, Math.cos(a) * 70, Math.sin(a) * 55, 0.9 + Math.random() * 0.4, 4 + Math.random() * 2); }
     for (let i = 0; i < 3 * q; i++) addP('smoke', x + (Math.random() - 0.5) * 8, y + (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 6, -16 - Math.random() * 14, 2 + Math.random(), 6 + Math.random() * 3);
   }
@@ -177,17 +186,17 @@ function muzzle(e) {
     const d = dx * dx + dy * dy; if (d < bd && d > 4) { bd = d; a = Math.atan2(dy, dx); }
   }
   fxs.fx.push({ k: 'muzzle', st, sc, x: e.x, y: e.y, a, life, max: life });
-  const c = Math.cos(a), s = Math.sin(a), q = reducedMotion() ? 0.5 : 1;
+  const c = Math.cos(a), s = Math.sin(a), q = fxq.q.dens;
   if (st === 'cn') {
     const v = 24 * sc;
-    for (const side of [-1, 1]) addP('smoke', e.x, e.y, -s * side * v + c * 8, c * side * v + s * 8, 0.6 * sc, 2.4 * sc);
-    addP('smoke', e.x + c * 4, e.y + s * 4, c * 28 * sc, s * 28 * sc, 0.5 * sc, 2.6 * sc);
-    if (w === 'HW') for (let i = 0; i < 6 * q; i++) { const b = Math.random() * 7, u = 20 + Math.random() * 20; addP('dust', e.x - c * 14, e.y - s * 14, Math.cos(b) * u, Math.sin(b) * u, 1.1, 4); }
+    if (maybe(q)) for (const side of [-1, 1]) addP('smoke', e.x, e.y, -s * side * v + c * 8, c * side * v + s * 8, 0.6 * sc, 2.4 * sc);
+    if (maybe(q)) addP('smoke', e.x + c * 4, e.y + s * 4, c * 28 * sc, s * 28 * sc, 0.5 * sc, 2.6 * sc);
+    if (w === 'HW') for (let i = 0, n = 6 * dens(); i < n; i++) { const b = Math.random() * 7, u = 20 + Math.random() * 20; addP('dust', e.x - c * 14, e.y - s * 14, Math.cos(b) * u, Math.sin(b) * u, 1.1, 4); }
   } else if (st === 'rk') {
-    const n = Math.round(3 * sc * sc);
+    const n = Math.round(3 * sc * sc * Math.min(1, q + 0.15));
     for (let i = 0; i < n; i++) { const v = 30 + Math.random() * 30 * sc; addP('smoke', e.x - c * 10, e.y - s * 10, -c * v + (Math.random() - 0.5) * 24 * sc, -s * v + (Math.random() - 0.5) * 24 * sc, 0.75 * sc, 3 * sc); }
   } else if (st === 'mo') {
-    for (let i = 0; i < 2; i++) addP('smoke', e.x, e.y, (Math.random() - 0.5) * 12, -20 - Math.random() * 12, 0.9, 3);
+    for (let i = 0; i < 2; i++) if (maybe(q)) addP('smoke', e.x, e.y, (Math.random() - 0.5) * 12, -20 - Math.random() * 12, 0.9, 3);
   }
 }
 export function spawnFx(e) {
@@ -200,35 +209,36 @@ export function spawnFx(e) {
     case 'hit':
       if (!nearView(e.x, e.y, 40)) break;
       fx.push({ k: 'ring', x: e.x, y: e.y, life: 0.2, max: 0.2, s: 8 });
-      fx.push({ k: 'light', x: e.x, y: e.y, life: 0.08, max: 0.08, s: 12 });
-      for (let i = 0; i < 4; i++) addP('fire', e.x, e.y, (Math.random() - 0.5) * 80, (Math.random() - 0.5) * 80, 0.25, 2);
+      if (fxq.q.glow) fx.push({ k: 'light', x: e.x, y: e.y, life: 0.08, max: 0.08, s: 12 });
+      for (let i = 0, n = Math.round(4 * fxq.q.dens); i < n; i++) addP('fire', e.x, e.y, (Math.random() - 0.5) * 80, (Math.random() - 0.5) * 80, 0.25, 2);
       break;
     // con molte particelle già in volo (salve di razzi) la scia di fumo si dirada
-    case 'trail': if (Math.random() < (fxs.parts.length > MAXP / 2 ? 0.35 : 0.8) && nearView(e.x, e.y, 30)) addP('smoke', e.x, e.y, 0, -4, 0.6, 2.2); break;
-    case 'spark': if (nearView(e.x, e.y, 30)) addP('spark', e.x, e.y, (Math.random() - 0.5) * 60, -Math.random() * 50, 0.35, 1.5); break;
-    case 'spray': if (nearView(e.x, e.y, 30)) addP('spray', e.x, e.y, (Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10, 0.6, 3); break;
-    case 'chimney': if (nearView(e.x, e.y, 60)) addP('smoke', e.x, e.y, 6 + Math.random() * 6, -4 - Math.random() * 6, 2.4, 4); break;
+    case 'trail': if (Math.random() < (fxs.parts.length > fxq.q.maxP / 2 ? 0.35 : 0.8) * fxq.q.dens && nearView(e.x, e.y, 30)) addP('smoke', e.x, e.y, 0, -4, 0.6, 2.2); break;
+    case 'spark': if (maybe(fxq.q.dens) && nearView(e.x, e.y, 30)) addP('spark', e.x, e.y, (Math.random() - 0.5) * 60, -Math.random() * 50, 0.35, 1.5); break;
+    case 'spray': if (maybe(fxq.q.dens) && nearView(e.x, e.y, 30)) addP('spray', e.x, e.y, (Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10, 0.6, 3); break;
+    case 'chimney': if (maybe(fxq.q.dens) && nearView(e.x, e.y, 60)) addP('smoke', e.x, e.y, 6 + Math.random() * 6, -4 - Math.random() * 6, 2.4, 4); break;
     case 'flame': {
       // getto del lanciafiamme: lingua di fuoco animata, fiamme che volano verso il bersaglio, fumo e terreno annerito
       if (!(e.owner === P || seenAt(e.x2, e.y2)) || !nearView(e.x2, e.y2, 80)) break;
-      const r = e.r || 24, dx = e.x2 - e.x1, dy = e.y2 - e.y1, d = Math.hypot(dx, dy) || 1, q = reducedMotion() ? 0.5 : 1;
+      const r = e.r || 24, dx = e.x2 - e.x1, dy = e.y2 - e.y1, d = Math.hypot(dx, dy) || 1, q = dens();
       fx.push({ k: 'flame', x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2, r, life: 0.36, max: 0.36, ph: Math.random() * 7 });
       for (let i = 0; i < 5 * q; i++) { const k = 0.25 + Math.random() * 0.75, v = 40 + Math.random() * 50; addP('fire', e.x1 + dx * k, e.y1 + dy * k, dx / d * v + (Math.random() - 0.5) * 30, dy / d * v + (Math.random() - 0.5) * 30, 0.22 + Math.random() * 0.2, 2 + Math.random() * 2.5); }
       for (let i = 0; i < 4 * q; i++) { const a = Math.random() * 7, rr0 = Math.random() * r * 0.75; addP('fire', e.x2 + Math.cos(a) * rr0, e.y2 + Math.sin(a) * rr0, (Math.random() - 0.5) * 12, -10 - Math.random() * 16, 0.35 + Math.random() * 0.25, 2 + Math.random() * 2.2); }
       if (Math.random() < 0.9 * q) addP('smoke', e.x2 + (Math.random() - 0.5) * r * 0.6, e.y2 + (Math.random() - 0.5) * r * 0.6, 3 + Math.random() * 5, -10 - Math.random() * 10, 1.6, 3.8);
-      scorch(e.x2 + (Math.random() - 0.5) * r * 0.5, e.y2 + (Math.random() - 0.5) * r * 0.5, r * 0.55, 0.13);
+      if (maybe(fxq.q.dens)) scorch(e.x2 + (Math.random() - 0.5) * r * 0.5, e.y2 + (Math.random() - 0.5) * r * 0.5, r * 0.55, 0.13);
       break;
     }
     case 'repair':
       // modulo riparazione: arco verde-azzurro tra i due mezzi e scintille di saldatura sul mezzo riparato
       if (!(e.owner === P || seenAt(e.x2, e.y2)) || !nearView(e.x2, e.y2, 60)) break;
       fx.push({ k: 'repair', x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2, life: 0.3, max: 0.3 });
-      for (let i = 0; i < (reducedMotion() ? 2 : 4); i++) addP('rspark', e.x2 + (Math.random() - 0.5) * 8, e.y2 + (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 56, -Math.random() * 44, 0.32 + Math.random() * 0.15, 1.4);
+      for (let i = 0, n = Math.max(1, Math.round(4 * dens())); i < n; i++) addP('rspark', e.x2 + (Math.random() - 0.5) * 8, e.y2 + (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 56, -Math.random() * 44, 0.32 + Math.random() * 0.15, 1.4);
       break;
   }
 }
 // Polvere a terra (mezzo che esce, edificio che si posa).
 function dust(x, y, r, n) {
+  n = Math.max(1, Math.round(n * fxq.q.dens));
   for (let i = 0; i < n; i++) { const a = Math.random() * 7; addP('dust', x + Math.cos(a) * r, y + Math.sin(a) * r * 0.7, Math.cos(a) * 22, Math.sin(a) * 16, 0.8 + Math.random() * 0.5, 3 + Math.random() * 2); }
 }
 // Mezzo appena consegnato: esce dalla porta della fabbrica con una breve dissolvenza.
@@ -253,7 +263,7 @@ export function resetFx() {
 /* ---------- tracce di cingoli e ruote ---------- */
 // Livello a parte, a metà risoluzione, che sbiadisce piano: la tela del terreno resta intatta.
 const TK = 0.5;
-let trackC = null, trackG = null, trackFade = 0, trackPrune = 0;
+let trackC = null, trackG = null, trackFade = 0, trackPrune = 0, trackDirty = false;
 const trackLast = new Map();
 function initTracks() {
   trackC = document.createElement('canvas'); trackC.width = MW * TILE * TK; trackC.height = MH * TILE * TK;
@@ -263,8 +273,11 @@ function wake(u) {
   const c = Math.cos(u.ang), s = Math.sin(u.ang), bx = u.x - c * 10, by = u.y - s * 10;
   for (const side of [-1, 1]) addP('wake', bx, by, -s * side * 16 - c * 6, c * side * 16 - s * 6, 1.1, 2);
 }
+// In media qualità le impronte sono più rade (e più lunghe, per non lasciare buchi); in bassa non ci sono.
 function stampTracks(dt) {
+  const step = fxq.q.tracks;
   if (!trackG) return;
+  if (!step) { if (trackDirty) { trackDirty = false; trackG.setTransform(1, 0, 0, 1, 0, 0); trackG.clearRect(0, 0, trackC.width, trackC.height); } return; }
   if ((trackFade += dt) > 1) {
     trackFade = 0; trackG.setTransform(1, 0, 0, 1, 0, 0);
     trackG.globalCompositeOperation = 'destination-out'; trackG.fillStyle = 'rgba(0,0,0,0.1)';
@@ -276,23 +289,24 @@ function stampTracks(dt) {
     let l = trackLast.get(u.id);
     if (!l) { trackLast.set(u.id, [u.x, u.y]); continue; }
     const dx = u.x - l[0], dy = u.y - l[1], d2 = dx * dx + dy * dy;
-    if (d2 < 25) continue;
+    if (d2 < step * step) continue;
     l[0] = u.x; l[1] = u.y;
     if (d2 > 1600 || !canSee(P, u)) continue;
     const p = u.builder ? 'W' : u.d.p, water = terr[ftile(u.x) + ftile(u.y) * MW] === WATER;
     if (p === 'V') { if (water && nearView(u.x, u.y, 40)) wake(u); continue; }
     if (water) continue;
     const c = Math.cos(u.ang) * TK, s = Math.sin(u.ang) * TK, W = u.builder ? 12 : CHASSIS[u.d.c].size[1];
-    trackG.setTransform(c, s, -s, c, u.x * TK, u.y * TK);
+    const len = step > 5 ? Math.min(Math.sqrt(d2), 2 * step) + 1 : 6, bx = 3 - len;
+    trackG.setTransform(c, s, -s, c, u.x * TK, u.y * TK); trackDirty = true;
     if (p === 'TR') {
       trackG.fillStyle = 'rgba(26,22,14,0.38)';
-      trackG.fillRect(-3, -W / 2 - 4.5, 6, 6); trackG.fillRect(-3, W / 2 - 1.5, 6, 6);
+      trackG.fillRect(bx, -W / 2 - 4.5, len, 6); trackG.fillRect(bx, W / 2 - 1.5, len, 6);
     } else if (p === 'T' || p === 'HT') {
       trackG.fillStyle = p === 'T' ? 'rgba(26,22,14,0.34)' : 'rgba(26,22,14,0.28)';
-      trackG.fillRect(-3, -W / 2 - 3, 6, 4); trackG.fillRect(-3, W / 2 - 1, 6, 4);
+      trackG.fillRect(bx, -W / 2 - 3, len, 4); trackG.fillRect(bx, W / 2 - 1, len, 4);
     } else {
       trackG.fillStyle = 'rgba(26,22,14,0.22)';
-      trackG.fillRect(-3, -W / 2 - 2, 6, 2.2); trackG.fillRect(-3, W / 2 - 0.2, 6, 2.2);
+      trackG.fillRect(bx, -W / 2 - 2, len, 2.2); trackG.fillRect(bx, W / 2 - 0.2, len, 2.2);
     }
   }
 }
@@ -313,7 +327,7 @@ export function updParts(dt) {
   j = 0; for (const f of fxs.fx) { f.life -= dt; if (f.life > 0) fxs.fx[j++] = f; } fxs.fx.length = j;
   fxs.shake = fxs.shake > 0.05 ? fxs.shake * Math.exp(-dt * 9) : 0;
   if (!S) return;
-  const q = reducedMotion() ? 0.5 : 1;
+  const q = (reducedMotion() ? 0.5 : 1) * fxq.q.dmg;
   // relitti: bruciano, poi fumano e spariscono
   j = 0;
   for (const w of fxs.wrecks) {
@@ -437,8 +451,12 @@ function drawWeapon(g, wk, col, s) {
   g.restore();
 }
 export function drawVehicle(g, d, col, ang, tang, moving, t) {
+  g.save(); g.rotate(ang); drawHull(g, d, col, moving ? (t * 24) : 0); g.restore();
+  g.save(); g.rotate(tang); drawWeapon(g, d.w, col, TURRET_SC[d.c] || 1); g.restore();
+}
+// Scafo del mezzo rivolto verso +x: ombra, ruote o cingoli, carrozzeria. tread: avanzamento dei cingoli in pixel.
+function drawHull(g, d, col, tread) {
   const C = CHASSIS[d.c], L = C.size[0], W = C.size[1], tr = '#26271f', X = d.c === 'X';
-  g.save(); g.rotate(ang);
   g.fillStyle = 'rgba(0,0,0,0.3)'; rr(g, -L / 2 + 2, -W / 2 + 3, L + 1, W + 1, 3); g.fill();
   if (d.p === 'W') {
     g.fillStyle = tr; const xs = L > 24 ? [-L / 2 + 1, -L / 2 + 7.5, L / 2 - 12.5, L / 2 - 6] : L > 16 ? [-L / 2 + 1, -2.5, L / 2 - 6] : [-L / 2 + 1, L / 2 - 6];
@@ -448,12 +466,12 @@ export function drawVehicle(g, d, col, ang, tang, moving, t) {
     g.fillRect(-L / 2 - 0.5, -W / 2 - 2.5, L * 0.6, 3.5); g.fillRect(-L / 2 - 0.5, W / 2 - 1, L * 0.6, 3.5);
   } else if (d.p === 'T') {
     g.fillStyle = tr; g.fillRect(-L / 2 - 1, -W / 2 - 3, L + 2, 4); g.fillRect(-L / 2 - 1, W / 2 - 1, L + 2, 4);
-    g.strokeStyle = '#45463b'; g.lineWidth = 1; const off = moving ? (t * 24) % 3 : 0; g.beginPath();
+    g.strokeStyle = '#45463b'; g.lineWidth = 1; const off = tread % 3; g.beginPath();
     for (let x = -L / 2 + off; x < L / 2; x += 3) { g.moveTo(x, -W / 2 - 3); g.lineTo(x, -W / 2 + 1); g.moveTo(x, W / 2 - 1); g.lineTo(x, W / 2 + 3); }
     g.stroke();
   } else if (d.p === 'TR') {
     // cingoli rinforzati: larghi, a piastre distanziate, con la guida centrale scura
-    const x0 = -L / 2 - 2, len = L + 4, off = moving ? (t * 24) % 3.4 : 0;
+    const x0 = -L / 2 - 2, len = L + 4, off = tread % 3.4;
     g.fillStyle = tr; g.fillRect(x0, -W / 2 - 4.5, len, 6); g.fillRect(x0, W / 2 - 1.5, len, 6);
     g.fillStyle = '#4a4b3f';
     for (let x = x0 + off; x < x0 + len - 2; x += 3.4) { g.fillRect(x, -W / 2 - 4.2, 2.1, 5.4); g.fillRect(x, W / 2 - 1.2, 2.1, 5.4); }
@@ -479,8 +497,36 @@ export function drawVehicle(g, d, col, ang, tang, moving, t) {
     g.fillStyle = col.dark; g.globalAlpha = 0.5; g.fillRect(-L / 2 + 1.5, -W / 2 + 2, 3, W - 4);
     g.fillStyle = col.light; g.globalAlpha = 0.4; g.fillRect(L / 2 - 4, -W / 2 + 1.5, 2.5, W - 3); g.globalAlpha = 1;
   }
-  g.restore();
-  g.save(); g.rotate(tang); drawWeapon(g, d.w, col, TURRET_SC[d.c] || 1); g.restore();
+}
+/* ---------- sagome già pronte ---------- */
+// Scafi (telaio + propulsione + colore, con alcune fasi dei cingoli) e torrette (arma + telaio + colore) disegnati una
+// volta su tele fuori schermo alla risoluzione dello schermo, poi copiati ruotati: pochi comandi per mezzo.
+// Le tele sono ritagliate sull'ingombro del disegno: meno pixel trasparenti da copiare per ogni mezzo.
+const sprites = new Map(), TREAD_PH = 8;
+// Ingombro di ogni torretta a scala 1 [x0, y0, x1, y1], con la canna verso +x.
+const WEAPON_BOX = {
+  MG: [-4.5, -4.5, 11.5, 4.5], HMG: [-4.7, -7.1, 16, 4.7], CN: [-5.5, -5, 17, 5], CN75: [-7.1, -6.2, 23, 6.2],
+  CN105: [-12, -7.1, 30, 7.1], FL: [-9, -5.2, 15.2, 5.2], RP: [-8.5, -4.5, 15.1, 4.5], RK: [-4.5, -5.5, 7.5, 5.5],
+  MRL: [-10, -7.5, 11, 7.5], AT: [-5.5, -6.5, 13.1, 4.5], MO: [-5.5, -5.5, 11.5, 5.5], HW: [-12.5, -7.1, 28.1, 7.1],
+};
+function sprite(key, k, x0, y0, x1, y1, draw) {
+  let s = sprites.get(key);
+  if (!s) {
+    if (sprites.size > 600) sprites.clear();
+    const c = document.createElement('canvas'); c.width = Math.ceil((x1 - x0) * k); c.height = Math.ceil((y1 - y0) * k);
+    const g = c.getContext('2d'); g.setTransform(k, 0, 0, k, -x0 * k, -y0 * k); draw(g);
+    s = { c, x: x0, y: y0, w: c.width / k, h: c.height / k }; sprites.set(key, s);
+  }
+  return s;
+}
+function hullSprite(d, owner, moving, t, k) {
+  const C = CHASSIS[d.c], per = d.p === 'TR' ? 3.4 : 3, anim = moving && (d.p === 'T' || d.p === 'TR');
+  const ph = anim ? Math.floor(((t * 24) % per) / per * TREAD_PH) % TREAD_PH : 0, hx = C.size[0] / 2 + 4, hy = C.size[1] / 2 + 5.5;
+  return sprite(`h${d.c}${d.p}${owner}:${ph}:${k}`, k, -hx, -hy, hx, hy, g => drawHull(g, d, PAL[owner], ph * per / TREAD_PH));
+}
+function turretSprite(d, owner, k) {
+  const sc = TURRET_SC[d.c] || 1, b = WEAPON_BOX[d.w] || [-14, -9, 16, 9], m = 1;
+  return sprite(`t${d.w}${d.c}${owner}:${k}`, k, (b[0] - m) * sc, (b[1] - m) * sc, (b[2] + m) * sc, (b[3] + m) * sc, g => drawWeapon(g, d.w, PAL[owner], sc));
 }
 // Quanto si allunga il mezzo dal centro, dietro e davanti (con la canna), per inquadrarlo nell'anteprima.
 export function vehicleExtent(d) {
@@ -620,17 +666,30 @@ function drawStruct(g, s, t) {
   }
   drawStructBody(g, s, x0, y0, w, h, col, t, true);
 }
-function drawUnit(g, u, t, ct) {
+// k: scala delle sagome già pronte (0 = disegno diretto).
+function drawUnit(g, u, t, ct, k) {
   const t0 = fxs.spawns.get(u.id), a = t0 == null ? 9 : ct - t0;
-  g.save();
+  let x = u.x, y = u.y;
   if (a < 0.6) {
     // mezzo appena uscito dalla fabbrica: arriva dalla porta e compare in dissolvenza
-    const k = Math.max(0, a / 0.6), back = reducedMotion() ? 0 : 14 * (1 - k) * (1 - k);
-    g.globalAlpha = 0.15 + 0.85 * k; g.translate(u.x - Math.cos(u.ang) * back, u.y - Math.sin(u.ang) * back);
-  } else g.translate(u.x, u.y);
-  if (u.builder) drawTruck(g, PAL[u.owner], u.ang, u.working, t);
-  else drawVehicle(g, u.d, PAL[u.owner], u.ang, u.tang, u.moving, t);
-  g.restore(); g.globalAlpha = 1;
+    const f = Math.max(0, a / 0.6), back = reducedMotion() ? 0 : 14 * (1 - f) * (1 - f);
+    g.globalAlpha = 0.15 + 0.85 * f; x -= Math.cos(u.ang) * back; y -= Math.sin(u.ang) * back;
+  }
+  const sc = TF[0], ex = sc * x + TF[1], ey = sc * y + TF[2];
+  if (u.builder || !k) {
+    g.save(); g.setTransform(sc, 0, 0, sc, ex, ey);
+    if (u.builder) drawTruck(g, PAL[u.owner], u.ang, u.working, t);
+    else drawVehicle(g, u.d, PAL[u.owner], u.ang, u.tang, u.moving, t);
+    g.restore();
+  } else {
+    let c = Math.cos(u.ang) * sc, s = Math.sin(u.ang) * sc;
+    const h = hullSprite(u.d, u.owner, u.moving, t, k);
+    g.setTransform(c, s, -s, c, ex, ey); g.drawImage(h.c, h.x, h.y, h.w, h.h);
+    c = Math.cos(u.tang) * sc; s = Math.sin(u.tang) * sc;
+    const w = turretSprite(u.d, u.owner, k);
+    g.setTransform(c, s, -s, c, ex, ey); g.drawImage(w.c, w.x, w.y, w.w, w.h);
+  }
+  g.globalAlpha = 1;
 }
 // Segno dell'ordine: quattro frecce che si stringono sul punto, poi svaniscono.
 function drawMark(g, f, rm) {
@@ -649,6 +708,19 @@ export function hpColor(f) { return f > 0.6 ? '#93a85c' : f > 0.3 ? '#e2b84a' : 
 function bar(g, x, y, w, f) {
   g.fillStyle = 'rgba(0,0,0,0.65)'; g.fillRect(x - 1, y - 1, w + 2, 5);
   g.fillStyle = hpColor(f); g.fillRect(x, y, w * clamp(f, 0, 1), 3);
+}
+// In media e bassa qualità le barre dei mezzi si raccolgono e si disegnano con quattro riempimenti in tutto.
+const barBg = [], barCol = new Map();
+function barLater(x, y, w, f) {
+  barBg.push(x - 1, y - 1, w + 2, 5);
+  const c = hpColor(f); let a = barCol.get(c); if (!a) barCol.set(c, a = []);
+  a.push(x, y, w * clamp(f, 0, 1), 3);
+}
+function fillRects(g, style, a) {
+  if (!a.length) return;
+  g.fillStyle = style; g.beginPath();
+  for (let i = 0; i < a.length; i += 4) g.rect(a[i], a[i + 1], a[i + 2], a[i + 3]);
+  g.fill(); a.length = 0;
 }
 function brackets(g, x, y, w, h, c) {
   const l = Math.min(6, w / 3); g.strokeStyle = c; g.lineWidth = 1.5; g.beginPath();
@@ -680,18 +752,23 @@ function drawParts(g, inView) {
   }
   g.globalAlpha = 1;
 }
+// Trasformazione del mondo del fotogramma [scala, scostamento x, scostamento y]: le sagome ruotate si piazzano con
+// setTransform (at) e si torna al mondo con home, senza save/restore per ogni oggetto.
+const TF = [1, 0, 0];
+function at(g, x, y, a, k = 1) { const m = TF[0] * k, c = Math.cos(a) * m, s = Math.sin(a) * m; g.setTransform(c, s, -s, c, TF[0] * x + TF[1], TF[0] * y + TF[2]); }
+const home = g => g.setTransform(TF[0], 0, 0, TF[0], TF[1], TF[2]);
 function drawWreck(g, w) {
   const fade = Math.min(1, (w.life - w.t) / 1.5), burning = w.t < w.life - 2.5;
-  g.save(); g.translate(w.x, w.y); g.rotate(w.a); g.globalAlpha = fade;
+  at(g, w.x, w.y, w.a); g.globalAlpha = fade;
   g.fillStyle = 'rgba(10,9,7,0.5)'; g.beginPath(); g.ellipse(0, 0, 12, 8, 0, 0, 7); g.fill();
   g.fillStyle = '#211e19'; rr(g, -8, -5, 16, 10, 2); g.fill();
   g.fillStyle = '#34302a'; g.fillRect(-3, -3, 7, 6); g.fillStyle = '#16140f'; g.fillRect(3, -1, 8, 2);
-  g.restore(); g.globalAlpha = 1;
+  home(g); g.globalAlpha = 1;
   if (burning) burnList.push(w);
 }
 function drawMuzzle(g, f) {
   const k = f.life / f.max, sc = f.sc || 1;
-  g.save(); g.translate(f.x, f.y); g.rotate(f.a); g.scale(sc, sc); g.globalAlpha = k;
+  at(g, f.x, f.y, f.a, sc); g.globalAlpha = k;
   if (f.st === 'mg') {
     g.fillStyle = '#ffe9a6';
     for (const yy of [-1.6, 1.6]) { g.beginPath(); g.moveTo(-1, yy); g.lineTo(3, yy - 1.3); g.lineTo(9, yy); g.lineTo(3, yy + 1.3); g.closePath(); g.fill(); }
@@ -709,7 +786,7 @@ function drawMuzzle(g, f) {
   } else {
     g.fillStyle = '#ffd890'; g.beginPath(); g.arc(1, 0, 4 * k + 1, 0, 7); g.fill();
   }
-  g.restore(); g.globalAlpha = 1;
+  home(g); g.globalAlpha = 1;
   return (f.st === 'mg' ? 9 : f.st === 'hmg' ? 12 : f.st === 'cn' ? 22 : f.st === 'rk' ? 16 : 12) * sc;
 }
 // Scia sottile di un proiettile: gli ultimi punti del suo percorso, sempre più trasparenti verso la coda.
@@ -762,13 +839,13 @@ export function render(now) {
   g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = '#0c0e0d'; g.fillRect(0, 0, cv.width, cv.height);
   if (!S || !terrC) return;
   const sh = rm ? 0 : fxs.shake, ox = sh ? (Math.random() - 0.5) * 2 * sh : 0, oy = sh ? (Math.random() - 0.5) * 2 * sh : 0;
-  g.setTransform(dpr * z, 0, 0, dpr * z, (-cam.x * z + ox) * dpr, (-cam.y * z + oy) * dpr);
+  TF[0] = dpr * z; TF[1] = (-cam.x * z + ox) * dpr; TF[2] = (-cam.y * z + oy) * dpr; home(g);
   const vw = cw / z, vh = ch / z;
   const x0 = Math.max(0, cam.x), y0 = Math.max(0, cam.y), x1 = Math.min(MW * TILE, cam.x + vw), y1 = Math.min(MH * TILE, cam.y + vh);
   g.imageSmoothingEnabled = z < 1;
   if (x1 > x0 && y1 > y0) {
     g.drawImage(terrC, x0, y0, x1 - x0, y1 - y0, x0, y0, x1 - x0, y1 - y0);
-    if (trackC) { g.imageSmoothingEnabled = true; g.drawImage(trackC, x0 * TK, y0 * TK, (x1 - x0) * TK, (y1 - y0) * TK, x0, y0, x1 - x0, y1 - y0); }
+    if (trackC && fxq.q.tracks) { g.imageSmoothingEnabled = true; g.drawImage(trackC, x0 * TK, y0 * TK, (x1 - x0) * TK, (y1 - y0) * TK, x0, y0, x1 - x0, y1 - y0); }
   }
   const inView = (x, y, m) => x > cam.x - m && x < cam.x + vw + m && y > cam.y - m && y < cam.y + vh + m;
   for (const d of deposits) {
@@ -804,11 +881,15 @@ export function render(now) {
       g.beginPath(); g.ellipse(s.x, s.y + 1, r, r * 0.82, 0, 0, 7); g.stroke(); g.globalAlpha = 1;
     }
   }
+  // mezzi: trasformazione calcolata a mano (niente save/restore per mezzo), sagome già pronte se attive
+  const kq = Math.ceil(dpr * z * 4) / 4;
+  g.imageSmoothingEnabled = true;
   for (const e of S.ents) {
     if (e.kind !== 'unit' || e.dead || !inView(e.x, e.y, 30) || !canSee(P, e)) continue;
-    drawUnit(g, e, t, ct);
+    drawUnit(g, e, t, ct, kq);
     if (e.hp < e.max * 0.25) burnList.push(e);
   }
+  home(g);
   for (const p of proj) {
     if (!inView(p.x, p.y - (p.h || 0), 40)) continue;
     if (p.k === 'mortar') {
@@ -828,46 +909,50 @@ export function render(now) {
     else if (p.k === 'missile') {
       // missile filoguidato: scia sottile e chiara, corpo con alette, fiamma del motore
       drawTrail(g, p, p.x, p.y, 'rgba(235,232,215,', 1, 16);
-      g.save(); g.translate(p.x, p.y); g.rotate(p.a);
+      at(g, p.x, p.y, p.a);
       g.fillStyle = '#ffb347'; g.beginPath(); g.moveTo(-5, -1); g.lineTo(-9 - Math.random() * 3, 0); g.lineTo(-5, 1); g.closePath(); g.fill();
       g.fillStyle = '#8f8a74'; g.fillRect(-5, -2.4, 2, 4.8);
       g.fillStyle = '#e4e0cc'; g.fillRect(-5, -1.2, 9, 2.4); g.fillStyle = '#b4472c'; g.beginPath(); g.moveTo(4, -1.2); g.lineTo(6.5, 0); g.lineTo(4, 1.2); g.closePath(); g.fill();
-      g.restore();
+      home(g);
     } else {
       const big = p.wk === 'MRL' ? 1.25 : 1;
-      g.save(); g.translate(p.x, p.y); g.rotate(p.a); g.scale(big, big); g.fillStyle = '#d9d3c0'; g.fillRect(-4, -1, 7, 2); g.fillStyle = '#ffb347'; g.fillRect(-6, -1, 2, 2); g.restore();
+      at(g, p.x, p.y, p.a, big); g.fillStyle = '#d9d3c0'; g.fillRect(-4, -1, 7, 2); g.fillStyle = '#ffb347'; g.fillRect(-6, -1, 2, 2); home(g);
     }
   }
   drawParts(g, inView);
   // luci additive: lampi delle esplosioni, vampe, fuochi
   g.globalCompositeOperation = 'lighter';
+  // in bassa qualità: niente alone sulle vampe delle armi leggere né sui mezzi in fiamme
+  const full = fxq.q.glow;
   for (const f of fxs.fx) {
-    if (f.k === 'light') { const k = f.life / f.max; glow(g, f.x, f.y, f.s * (0.7 + 0.5 * (1 - k)), k); }
-    else if (f.k === 'muzzle' && inView(f.x, f.y, 30)) { const r = drawMuzzle(g, f); g.globalCompositeOperation = 'lighter'; glow(g, f.x, f.y, r, 0.7 * f.life / f.max); }
+    if (f.k === 'light') { if (inView(f.x, f.y, f.s * 1.2)) { const k = f.life / f.max; glow(g, f.x, f.y, f.s * (0.7 + 0.5 * (1 - k)), k); } }
+    else if (f.k === 'muzzle' && inView(f.x, f.y, 30)) { const r = drawMuzzle(g, f); if (full || f.st === 'cn' || f.st === 'rk') glow(g, f.x, f.y, r, 0.7 * f.life / f.max); }
     else if (f.k === 'flame' && inView(f.x2, f.y2, 60)) drawFlame(g, f, t);
     else if (f.k === 'repair' && inView(f.x2, f.y2, 40)) drawRepair(g, f);
   }
-  for (const b of burnList) glow(g, b.x, b.y, b.kind === 'struct' ? 26 : 14, 0.32 + 0.12 * Math.sin(t * 13 + (b.id || b.ph || 0)));
+  for (const b of burnList) if (full || b.kind === 'struct') glow(g, b.x, b.y, b.kind === 'struct' ? 26 : 14, 0.32 + 0.12 * Math.sin(t * 13 + (b.id || b.ph || 0)));
   g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
   for (const f of fxs.fx) {
     const k = f.life / f.max;
+    if ((f.k === 'ring' || f.k === 'shock') && !inView(f.x, f.y, 60)) continue;
     if (f.k === 'tracer') { g.strokeStyle = `rgba(255,224,140,${0.9 * k})`; g.lineWidth = 1.2; g.beginPath(); g.moveTo(f.x1, f.y1); g.lineTo(f.x2, f.y2); g.stroke(); }
     else if (f.k === 'ring') { g.strokeStyle = `rgba(255,190,110,${0.8 * k})`; g.lineWidth = 2; g.beginPath(); g.arc(f.x, f.y, f.s * (1.4 - k), 0, 7); g.stroke(); }
     else if (f.k === 'shock') { g.strokeStyle = `rgba(255,248,225,${0.55 * k})`; g.lineWidth = 1 + 2 * k; g.beginPath(); g.arc(f.x, f.y, f.s * (0.3 + 1.9 * (1 - k)), 0, 7); g.stroke(); }
   }
   g.imageSmoothingEnabled = true;
-  g.drawImage(fogC, 0, 0, MW * TILE, MH * TILE);
+  drawFog(g);
   for (const f of fxs.fx) if (f.k === 'mark') drawMark(g, f, rm);
   selSet.clear(); for (const id of ui.sel) selSet.add(id);
+  const batchBars = fxq.level < 2;
   for (const e of S.ents) {
-    if (e.dead || !inView(e.x, e.y, 100)) continue;
+    if (e.dead || !inView(e.x, e.y, e.kind === 'unit' ? 30 : 100)) continue;
     const isSel = selSet.has(e.id);
     if (e.owner !== P && !canSee(P, e)) continue;
     if (!isSel && e.hp >= e.max && (e.kind !== 'struct' || e.built >= 1)) continue;
     if (e.kind === 'unit') {
       const r = e.rad + 4;
       if (isSel) brackets(g, e.x - r, e.y - r, r * 2, r * 2, e.owner === P ? '#f2e6c9' : '#e79a8f');
-      bar(g, e.x - 11, e.y - r - 6, 22, e.hp / e.max);
+      if (batchBars) barLater(e.x - 11, e.y - r - 6, 22, e.hp / e.max); else bar(g, e.x - 11, e.y - r - 6, 22, e.hp / e.max);
     } else {
       const xs = e.tx * TILE, ys = e.ty * TILE, w = e.w * TILE, h = e.h * TILE;
       if (isSel) brackets(g, xs + 1, ys + 1, w - 2, h - 2, e.owner === P ? '#f2e6c9' : '#e79a8f');
@@ -875,6 +960,7 @@ export function render(now) {
       if (e.built < 1) { g.fillStyle = 'rgba(0,0,0,0.65)'; g.fillRect(xs + 6, ys + h + 2, w - 12, 4); g.fillStyle = '#f0c27a'; g.fillRect(xs + 6, ys + h + 2, (w - 12) * e.built, 3); }
     }
   }
+  if (batchBars) { fillRects(g, 'rgba(0,0,0,0.65)', barBg); for (const [c, a] of barCol) fillRects(g, c, a); }
   if (ui.placing && hover.in) {
     const D = STRUCTS[ui.placing], w = screenToWorld(hover.x, hover.y);
     const tx = Math.floor(w.x / TILE - D.w / 2 + 0.5), ty = Math.floor(w.y / TILE - D.h / 2 + 0.5);
@@ -889,6 +975,22 @@ export function render(now) {
   g.font = '600 12px "IBM Plex Sans Condensed", sans-serif';
   if (ui.amove) { g.fillStyle = 'rgba(17,20,18,0.85)'; g.fillRect(8, 8, 206, 24); g.fillStyle = '#e79a8f'; g.fillText('Attacca-muovi: scegli la destinazione', 16, 24); }
   else if (ui.placing) { g.fillStyle = 'rgba(17,20,18,0.85)'; g.fillRect(8, 8, 246, 24); g.fillStyle = '#f0c27a'; g.fillText(`${STRUCTS[ui.placing].name}: scegli il punto (Esc annulla)`, 16, 24); }
+}
+// Nebbia: solo il rettangolo di caselle coperte vicino alla visuale (più una casella di margine, così la sfumatura
+// resta identica); se tutta la visuale è in vista non si disegna niente.
+function drawFog(g) {
+  const d = fogImg.data, vw = view.cw / cam.z, vh = view.ch / cam.z;
+  const tx0 = Math.max(0, Math.floor(cam.x / TILE) - 2), ty0 = Math.max(0, Math.floor(cam.y / TILE) - 2);
+  const tx1 = Math.min(MW - 1, Math.floor((cam.x + vw) / TILE) + 2), ty1 = Math.min(MH - 1, Math.floor((cam.y + vh) / TILE) + 2);
+  let bx0 = MW, by0 = MH, bx1 = -1, by1 = -1;
+  for (let y = ty0; y <= ty1; y++) for (let x = tx0, i = (y * MW + tx0) * 4 + 3; x <= tx1; x++, i += 4) {
+    if (!d[i]) continue;
+    if (x < bx0) bx0 = x; if (x > bx1) bx1 = x; if (y < by0) by0 = y; if (y > by1) by1 = y;
+  }
+  if (bx1 < 0) return;
+  bx0 = Math.max(0, bx0 - 1); by0 = Math.max(0, by0 - 1); bx1 = Math.min(MW - 1, bx1 + 1); by1 = Math.min(MH - 1, by1 + 1);
+  const w = bx1 - bx0 + 1, h = by1 - by0 + 1;
+  g.drawImage(fogC, bx0, by0, w, h, bx0 * TILE, by0 * TILE, w * TILE, h * TILE);
 }
 export function renderMini() {
   if (!S || !mmBase) return;

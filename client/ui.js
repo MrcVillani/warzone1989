@@ -8,6 +8,7 @@ import { ui, cam, view, fxs, FACTION, PAL } from './state.js';
 import { selEnts, selUnits, setSel } from './selection.js';
 import { centerOn, screenToWorld, drawVehicle, vehicleExtent, hpColor } from './render.js';
 import { soundOn, setSound, getVolume, setVolume, onAudioChange, uiSfx } from './audio.js';
+import { fxq, setPref } from './quality.js';
 import { selectArmy } from './input.js';
 
 const $ = id => document.getElementById(id);
@@ -275,6 +276,13 @@ function syncSound() {
   const vv = $('ovVolV'); if (vv) vv.textContent = Math.round(getVolume() * 100) + '%';
 }
 
+// Qualità degli effetti: automatica (si adatta al dispositivo), sempre alta o sempre bassa.
+const FX_OPTS = [['auto', 'Automatici'], ['alta', 'Alti'], ['bassa', 'Bassi']];
+function syncFx() {
+  document.querySelectorAll('[data-fx]').forEach(b => { const on = b.dataset.fx === fxq.pref; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+  const v = $('ovFxV'); if (v) v.textContent = fxq.pref === 'auto' ? `ora ${fxq.q.name}` : '';
+}
+
 /* ---------- copertina, aiuto, fine ---------- */
 const CONTROLS = `<dl class="controls">
   <div><dt>Clic su un tuo mezzo</dt><dd>lo seleziona (anche un edificio); trascina per un riquadro</dd></div>
@@ -320,10 +328,13 @@ export function showHelp() {
   <p class="brief">Le pompe sui giacimenti producono il gasolio. Il laboratorio sblocca telai, propulsioni e armi; nella scheda Progetta li combini in un nuovo mezzo e la fabbrica lo produce. Vinci quando il nemico non ha più comando, fabbriche né genieri.</p>
   <div class="audioset"><span class="lbl">Suono</span><button class="btn" id="ovSound" aria-pressed="true">Acceso</button>
     <label for="ovVol">Volume</label><input type="range" id="ovVol" min="0" max="100" step="5"><output id="ovVolV">60%</output></div>
+  <div class="audioset" role="group" aria-label="Qualità degli effetti"><span class="lbl">Effetti</span>${FX_OPTS.map(([k, l]) => `<button class="btn" data-fx="${k}">${l}</button>`).join('')}<output id="ovFxV"></output></div>
   ${CONTROLS}<div class="actions"><button class="primary" id="ovClose">Torna alla partita</button></div></div>`;
   $('ovSound').addEventListener('click', () => setSound(!soundOn()));
   $('ovVol').addEventListener('input', e => setVolume(e.target.value / 100));
   syncSound();
+  o.querySelectorAll('[data-fx]').forEach(b => b.addEventListener('click', () => { setPref(b.dataset.fx); syncFx(); }));
+  syncFx();
   $('ovClose').addEventListener('click', closeOverlay); $('ovClose').focus();
 }
 export function showEnd(won) {

@@ -85,7 +85,9 @@ proiettili in volo, che `loadState` rimette nell'array `proj`.
 | `render.js` | terreno, edifici, mezzi, effetti, nebbia, minimappa |
 | `input.js` | selezione, ordini, scorciatoie, touch e zoom |
 | `ui.js` | pannello (Costruisci, Produzione, Ricerca, Progetta), avvisi, copertina, rapporto finale |
-| `main.js` | collega eventi e moduli, ciclo di gioco, aggancio di test `window.__wz` |
+| `audio.js` | suoni sintetizzati con Web Audio, posizionati rispetto alla visuale, con limite di voci; volume e acceso/spento salvati sul dispositivo |
+| `quality.js` | qualità adattiva degli effetti (alta, media, bassa): misura il tempo per fotogramma e regola particelle, tracce e risoluzione della tela; scelta «Effetti» salvata sul dispositivo |
+| `main.js` | collega eventi e moduli, ciclo di gioco, aggancio di test `window.__wz` (anche `fxq()` e `setFx()` per la qualità) |
 
 ## Build
 
