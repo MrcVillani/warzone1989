@@ -101,6 +101,10 @@ mappa, configurazione del giocatore e del nemico). `newGame(diff, seed, opts)` c
 `opts.designs` prepara una missione; senza `opts` è la schermaglia. Il client tiene lo stato della campagna (missioni
 vinte, ricerche e progetti accumulati, migliori tempi) e lo aggiorna con `finishMission` dopo ogni vittoria.
 `tests/balance/campagna.mjs` gioca la campagna con l'IA dalla parte del giocatore (`S.autoplay`) per il bilanciamento.
+Le difficoltà in missione seguono `MISSION_DIFF` (scala di `DIFF` attenuata; la schermaglia usa `DIFF` pieno).
+Campi di missione per il nemico oltre a rendita e ondate: `factories` (0 = niente fabbriche), `keep` (quota di
+difensori che resta in base). L'IA del giocatore in autoplay usa `AI_TECH_P` e `AI_PLAYER`. Risultati e scelte del
+bilanciamento in [`bilanciamento.md`](bilanciamento.md).
 
 ## Build
 
