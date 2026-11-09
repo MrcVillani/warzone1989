@@ -180,6 +180,7 @@ function placeWhy(type, tx, ty) {
 let pbKey = '', pbShown = false;
 let amShown = false;
 export function updatePlacebar() {
+  fitMini();
   const bar = $('placebar'); if (!bar) return;
   // attacca-muovi in attesa della destinazione: il pulsante resta acceso (nella disposizione B la mappa non mostra la scritta)
   const am = layout.b && !!ui.amove;
@@ -216,11 +217,37 @@ function syncSelBox() {
   if (layout.b) { el.setAttribute('role', 'button'); el.tabIndex = 0; el.title = 'Dettaglio della selezione'; }
   else { el.setAttribute('role', 'status'); el.removeAttribute('tabindex'); el.removeAttribute('title'); }
 }
+// Minimappa ingrandita: si apre verso l'alto sopra la fila degli ordini e la barra del piazzamento, con il pulsante
+// alla sua sinistra, e prende il lato più grande (fino a 232 px) che sta tra quella fila, la striscia delle risorse,
+// l'obiettivo e il bordo sinistro dello schermo. Si ricalcola a ogni fotogramma (da updatePlacebar) solo se cambia.
+const MM_MAX = 232, MM_GAP = 6, MM_BTN = 48;
+let mmKey = '';
+function fitMini() {
+  const m = document.querySelector('.mm'); if (!m) return;
+  if (!layout.b || !ui.miniBig) { if (mmKey) { mmKey = ''; m.style.removeProperty('--mmb'); m.style.removeProperty('--mms'); } return; }
+  const vis = el => el && !el.hidden && el.getClientRects().length ? el.getBoundingClientRect() : null;
+  const vh = innerHeight, right = m.getBoundingClientRect().right;
+  let low = vh - 8;
+  for (const r of [vis($('touchbar')), vis($('placebar'))]) if (r && r.height >= 1) low = Math.min(low, r.top);
+  const bottom = low - MM_GAP;
+  const fit = top => Math.floor(Math.min(MM_MAX, bottom - top, right - 8 - MM_BTN - MM_GAP));
+  const rs = vis(document.querySelector('#bar .readouts'));
+  let top = rs ? rs.bottom + MM_GAP : 8, side = fit(top);
+  const ob = vis($('objective'));
+  if (ob && ob.right > right - side - MM_BTN - MM_GAP && ob.bottom + MM_GAP > top) { top = ob.bottom + MM_GAP; side = fit(top); }
+  side = Math.max(106, side);
+  const key = `${Math.round(vh - bottom)}|${side}`;
+  if (key === mmKey) return;
+  mmKey = key;
+  m.style.setProperty('--mmb', `${Math.round(vh - bottom)}px`);
+  m.style.setProperty('--mms', `${side - 2}px`); // il bordo di 1 px per lato sta fuori dalla misura
+}
 function initMini() {
   const b = $('btnMiniBig'); if (!b) return;
   b.addEventListener('click', () => {
     ui.miniBig = !ui.miniBig;
     b.closest('.mm').classList.toggle('big', ui.miniBig);
+    fitMini();
     b.innerHTML = ui.miniBig ? ICON.shrink : ICON.grow;
     b.setAttribute('aria-pressed', ui.miniBig ? 'true' : 'false');
     b.setAttribute('aria-label', ui.miniBig ? 'Rimpicciolisci la minimappa' : 'Ingrandisci la minimappa');
@@ -249,7 +276,7 @@ export function initDrawer() {
     keepAbove(s);
   });
   onLayout(() => {
-    if (!layout.b) { ui.drawer = null; ui.ghost = null; ui.miniBig = false; const m = document.querySelector('.mm'); if (m) m.classList.remove('big'); }
+    if (!layout.b) { ui.drawer = null; ui.ghost = null; ui.miniBig = false; const m = document.querySelector('.mm'); if (m) m.classList.remove('big'); fitMini(); }
     syncSelBox(); syncDrawer(); updatePlacebar(); ui.key = '';
     if (S) renderPanel(true);
   });

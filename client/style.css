@@ -534,7 +534,7 @@ button { font: inherit; color: inherit; }
   --rail: 66px; --tabh: 62px;
   --sl: env(safe-area-inset-left, 0px); --sr: env(safe-area-inset-right, 0px);
   --st: env(safe-area-inset-top, 0px); --sb: env(safe-area-inset-bottom, 0px);
-  --dw: clamp(272px, 40vw, 440px); --dh: min(54vh, 540px);
+  --dw: clamp(356px, 40vw, 440px); --dh: min(54vh, 540px);
 }
 .lb #app { display: block; padding: 0; height: 100%; }
 .lb #body { display: block; }
@@ -692,11 +692,12 @@ button { font: inherit; color: inherit; }
 .lb .pchips .chip { min-height: 44px; padding: 6px 12px; border-radius: 22px; font-size: 13px; }
 .lb .pchips .chip small { color: var(--dim); }
 .lb .pchips .chip.on small { color: var(--amber-hi); }
-.qtiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
-.qt { position: relative; min-width: 0; height: 58px; box-sizing: border-box; padding: 4px 3px 0; display: flex; flex-direction: column; justify-content: space-between; background: var(--hull-2); border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; cursor: pointer; touch-action: manipulation; -webkit-touch-callout: none; }
+/* cinque posti su una riga, di almeno 64×64 px: il cassetto è largo almeno 356 px e gli spazi sono stretti */
+.qtiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 3px; }
+.qt { position: relative; min-width: 0; height: 64px; box-sizing: border-box; padding: 4px 3px 0; display: flex; flex-direction: column; justify-content: space-between; background: var(--hull-2); border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; cursor: pointer; touch-action: manipulation; -webkit-touch-callout: none; }
 .qt:first-child { border-color: var(--amber); }
 .qt:active { background: var(--brick-wash); border-color: var(--brick); }
-.qt .art { display: grid; place-items: center; height: 44px; }
+.qt .art { display: grid; place-items: center; height: 50px; }
 .qt .vc { width: 52px; height: 32px; }
 .qt .vart { width: 46px; height: 30px; }
 .qt .qx { position: absolute; top: 1px; right: 4px; font-size: 14px; line-height: 1; color: var(--dim); }
@@ -742,9 +743,13 @@ button { font: inherit; color: inherit; }
 .lb .mm .cap { display: none; }
 .lb.dopen .mm { visibility: hidden; }
 .lb #mini { width: 104px; height: 104px; aspect-ratio: auto; border: 1px solid var(--glass-rule); border-radius: 4px; box-shadow: 0 2px 10px var(--shade); }
-.lb .mm.big #mini { width: min(232px, calc(100vh - 150px), calc(100vw - 160px)); height: min(232px, calc(100vh - 150px), calc(100vw - 160px)); }
-.lb .mmbig { position: absolute; right: 0; bottom: 100%; margin-bottom: 6px; width: 48px; height: 36px; padding: 0; display: grid; place-items: center; background: var(--glass-hi); border: 1px solid var(--glass-rule); border-radius: 4px; color: var(--paper); cursor: pointer; touch-action: manipulation; }
-.lb .mmbig .ic { width: 18px; height: 18px; }
+/* ingrandita si apre verso l'alto sopra la fila degli ordini (o la barra del piazzamento), con il pulsante alla sua
+   sinistra: posizione (--mmb) e lato (--mms) li calcola fitMini in drawer.js sullo spazio libero */
+.lb .mm.big { bottom: var(--mmb, calc(8px + var(--sb))); }
+.lb .mm.big #mini { width: var(--mms, 104px); height: var(--mms, 104px); }
+.lb .mmbig { position: absolute; right: 0; bottom: 100%; margin-bottom: 6px; width: 48px; height: 48px; padding: 0; display: grid; place-items: center; background: var(--glass-hi); border: 1px solid var(--glass-rule); border-radius: 4px; color: var(--paper); cursor: pointer; touch-action: manipulation; }
+.lb .mm.big .mmbig { right: 100%; bottom: 0; margin: 0 6px 0 0; }
+.lb .mmbig .ic { width: 20px; height: 20px; }
 .lb .mmbig:focus-visible { outline: 2px solid var(--amber-hi); outline-offset: 1px; }
 
 /* piazzamento di un edificio: indicazione e pulsanti grandi ✓ e ✕ */
