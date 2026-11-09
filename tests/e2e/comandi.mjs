@@ -5,6 +5,7 @@
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
+import { openMenu } from './layoutb.mjs';
 
 const { chromium, devices } = createRequire(import.meta.url)('playwright');
 
@@ -171,8 +172,10 @@ export async function runCommandChecks({ browser, url, check, profiles }) {
     }
 
     // 7. Suono: il pulsante cambia stato, lo ricorda dopo il ricaricamento, e con l'audio attivo niente errori.
+    //    Su telefono (disposizione B) «Suono» sta nel cassetto «Menu»: prima si apre quello.
     {
       const b0 = await page.locator('#btnSound').getAttribute('aria-pressed');
+      await openMenu(page);
       await page.locator('#btnSound').click();
       const b1 = await page.locator('#btnSound').getAttribute('aria-pressed');
       const st1 = await page.evaluate(() => window.__wz.audio().enabled);
@@ -182,6 +185,7 @@ export async function runCommandChecks({ browser, url, check, profiles }) {
       check(b0 === 'true' && b1 === 'false' && !st1 && b2 === 'false' && !st2,
         `${name}: «Suono» si spegne e resta spento dopo il ricaricamento (aria-pressed ${b0} → ${b1} → ${b2} dopo ricarica)`);
       await page.locator('#ovStart').click();
+      await openMenu(page);
       await page.locator('#btnSound').click();
       const b3 = await page.locator('#btnSound').getAttribute('aria-pressed');
       await page.evaluate(installHelpers);

@@ -12,12 +12,15 @@ import { fxq, setPref } from './quality.js';
 import { musicOn, setMusic, getMusicVolume, setMusicVolume, onMusicChange } from './music.js';
 import { selectArmy, saveSquad, recallSquad, squadIds, LONG_MS, DBL_MS, TAP_MOVE, stopInertia } from './input.js';
 import { nextAlarm, alarmList, initAlerts, resetAlerts } from './alerts.js';
+import { layout } from './layout.js';
+import { paneTab, toggleDrawer, openDrawer, syncDrawer, startPlacing, updatePlacebar } from './drawer.js';
+import { tilesFor, paintTiles, freeBuilders } from './tiles.js';
 
 const $ = id => document.getElementById(id);
-const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+export const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const coarse = () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 const fmtN = n => Math.floor(n).toLocaleString('it-IT');
-const dec = n => String(n).replace('.', ',');
+export const dec = n => String(n).replace('.', ',');
 export const fmtTime = s => { s = Math.floor(s); return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); };
 
 export function toast(text, kind) {
@@ -45,7 +48,8 @@ export function startGame(diff, seed) {
 // Dopo una partita nuova (schermaglia o missione): selezione, schede, effetti e camera da capo.
 export function resetClient() {
   ui.sel = []; ui.groups = {}; ui.placing = null; ui.amove = false; ui.producer = 0; ui.tab = 'build';
-  ui.draft = { c: 'L', p: 'W', w: 'MG' }; ui.key = ''; ui.resFold = {};
+  ui.draft = { c: 'L', p: 'W', w: 'MG' }; ui.key = ''; ui.resFold = {}; ui.drawer = null; ui.ghost = null;
+  syncDrawer(); updatePlacebar();
   fxs.parts = []; fxs.fx = []; fxs.pings = []; fxs.boxSel = null;
   resetAlerts(); stopInertia();
   cam.z = view.cw < 520 ? 0.8 : 1;
@@ -67,21 +71,21 @@ export function togglePause() {
 }
 
 /* ---------- pannello ---------- */
-function producers() { return S.ents.filter(e => !e.dead && e.owner === P && e.kind === 'struct' && (e.type === 'factory' || e.type === 'hq')); }
-function prodLabel(s) {
+export function producers() { return S.ents.filter(e => !e.dead && e.owner === P && e.kind === 'struct' && (e.type === 'factory' || e.type === 'hq')); }
+export function prodLabel(s) {
   if (s.type === 'hq') return 'Comando';
   const fs = S.ents.filter(e => !e.dead && e.owner === P && e.type === 'factory');
   return `Fabbrica ${fs.indexOf(s) + 1}`;
 }
-function partReady(kind, key) { const r = (kind === 'c' ? CHASSIS : kind === 'p' ? PROPS : WEAPONS)[key].req; return !r || S.tech[P][r]; }
+export function partReady(kind, key) { const r = (kind === 'c' ? CHASSIS : kind === 'p' ? PROPS : WEAPONS)[key].req; return !r || S.tech[P][r]; }
 // Il pannello si ricostruisce solo quando cambia questa chiave; le barre di avanzamento si aggiornano a parte.
 function panelKey() {
-  const r = Math.floor(S.res[P]);
-  const k = [ui.tab, ui.placing, ui.sel.join(','), selEnts().map(e => `${e.id}:${e.built}:${e.kind === 'unit' ? e.order.t + (e.d && WEAPONS[e.d.w].heal && e.tgt ? 1 : 0) : ''}`).join(','), Object.keys(S.tech[P]).length];
-  if (ui.tab === 'build') k.push(selUnits().some(u => u.builder), Object.keys(S.tech[P]).join(','), BUILD_ORDER.map(t => r >= STRUCTS[t].cost).join(''));
-  if (ui.tab === 'prod') { const ps = producers(); k.push(ui.producer, ps.map(p => `${p.id}:${p.built >= 1}:${p.queue.length}`).join(','), JSON.stringify(S.designs), S.designs.map(d => r >= dStats(d, P).cost).join(''), r >= BUILDER.cost); }
-  if (ui.tab === 'res') k.push(JSON.stringify(ui.resFold), Object.keys(S.tech[P]).join(','), S.ents.filter(e => e.owner === P && e.type === 'lab' && !e.dead).map(l => `${l.id}:${l.built >= 1}:${l.rs ? l.rs.id : ''}`).join(','), TECH.map(t => r >= t.cost).join(''));
-  if (ui.tab === 'des') k.push(JSON.stringify(ui.draft), JSON.stringify(S.designs), Object.keys(S.tech[P]).join(','));
+  const r = Math.floor(S.res[P]), tab = paneTab();
+  const k = [tab, layout.b ? `B${layout.v ? 'v' : ''}:${ui.drawer}` : '', ui.placing, ui.sel.join(','), selEnts().map(e => `${e.id}:${e.built}:${e.kind === 'unit' ? e.order.t + (e.d && WEAPONS[e.d.w].heal && e.tgt ? 1 : 0) : ''}`).join(','), Object.keys(S.tech[P]).length];
+  if (tab === 'build') k.push(selUnits().some(u => u.builder), layout.b ? freeBuilders().length : '', Object.keys(S.tech[P]).join(','), BUILD_ORDER.map(t => r >= STRUCTS[t].cost).join(''));
+  if (tab === 'prod') { const ps = producers(); k.push(ui.producer, ps.map(p => `${p.id}:${p.built >= 1}:${p.queue.length}`).join(','), JSON.stringify(S.designs), S.designs.map(d => r >= dStats(d, P).cost).join(''), r >= BUILDER.cost); }
+  if (tab === 'res') k.push(JSON.stringify(ui.resFold), Object.keys(S.tech[P]).join(','), S.ents.filter(e => e.owner === P && e.type === 'lab' && !e.dead).map(l => `${l.id}:${l.built >= 1}:${l.rs ? l.rs.id : ''}`).join(','), TECH.map(t => r >= t.cost).join(''));
+  if (tab === 'des') k.push(JSON.stringify(ui.draft), JSON.stringify(S.designs), Object.keys(S.tech[P]).join(','));
   return k.join('|');
 }
 function htmlSel() {
@@ -131,12 +135,17 @@ function htmlBuild() {
   }
   return h + '</div><p class="hint small">Scorciatoia: con un geniere selezionato, clicca (o tocca) un giacimento libero per avviare subito una pompa, o un tuo edificio danneggiato per ripararlo.</p>';
 }
-function htmlProd() {
-  const ps = producers();
-  if (!ps.length) return '<p class="hint">Non hai né un comando né una fabbrica.</p>';
+// Fabbrica (o comando) mostrata in Produzione: quella scelta, altrimenti la prima fabbrica, altrimenti il comando.
+export function curProducer(ps = producers()) {
   let cur = ent(ui.producer);
   if (!cur || cur.dead || cur.owner !== P || !(cur.type === 'factory' || cur.type === 'hq')) cur = ps.find(p => p.type === 'factory') || ps[0];
   ui.producer = cur.id;
+  return cur;
+}
+function htmlProd() {
+  const ps = producers();
+  if (!ps.length) return '<p class="hint">Non hai né un comando né una fabbrica.</p>';
+  const cur = curProducer(ps);
   let h = `<div class="chips">${ps.map(p => `<button class="chip ${p === cur ? 'on' : ''}" data-act="producer" data-id="${p.id}">${prodLabel(p)}${p.built < 1 ? ' · cantiere' : ''}</button>`).join('')}</div>`;
   if (cur.built < 1) return h + '<p class="hint">Questa fabbrica è ancora in costruzione. Mandaci un geniere per finirla.</p>';
   h += '<div class="list">';
@@ -158,9 +167,9 @@ function htmlProd() {
   return h;
 }
 // Gittata come testo; per le armi a tiro indiretto anche la distanza minima («2,5–9»).
-const rangeTxt = W => (W.minRange ? dec(W.minRange) + '–' : '') + dec(W.range);
+export const rangeTxt = W => (W.minRange ? dec(W.minRange) + '–' : '') + dec(W.range);
 // Un livello è aperto per default se è sbloccato e non tutto completato; il giocatore può aprirlo o chiuderlo.
-function tierOpen(t) {
+export function tierOpen(t) {
   if (t > tierCap(P)) return false; // oltre il livello massimo della missione: sempre chiuso
   if (ui.resFold && ui.resFold[t] != null) return ui.resFold[t];
   return tierAvail(P, t) && TECH.some(T => T.tier === t && !S.tech[P][T.id]);
@@ -222,18 +231,31 @@ function drawPreview() {
   for (let x = 0; x < c.width; x += 24) { g.beginPath(); g.moveTo(x + 0.5, 0); g.lineTo(x + 0.5, c.height); g.stroke(); }
   for (let y = 0; y < c.height; y += 24) { g.beginPath(); g.moveTo(0, y + 0.5); g.lineTo(c.width, y + 0.5); g.stroke(); }
   // il mezzo si inquadra con la canna: i telai grandi e le canne lunghe si rimpiccioliscono e si spostano indietro
-  const ex = vehicleExtent(ui.draft), half = (ex.back + ex.front) / 2 + 2, sc = Math.min(3.2, 74 / half), A = -0.5, mid = (ex.front - ex.back) / 2;
+  const ex = vehicleExtent(ui.draft), half = (ex.back + ex.front) / 2 + 2, sc = Math.min(3.2 * c.width / 192, 74 * c.width / 192 / half), A = -0.5, mid = (ex.front - ex.back) / 2;
   g.translate(c.width / 2 - Math.cos(A) * mid * sc, c.height / 2 - Math.sin(A) * mid * sc); g.scale(sc, sc);
   drawVehicle(g, ui.draft, PAL[P], A, A + Math.sin(performance.now() / 900) * 0.3, false, 0);
+}
+// Disposizione B: dal dettaglio della selezione si va dritti alla scheda che serve.
+function selActions() {
+  const es = selEnts(), own = es.filter(e => e.owner === P);
+  const go = (t, l) => `<button class="btn" data-act="go" data-tab="${t}">${l}</button>`;
+  let h = '';
+  if (own.length === 1 && own[0].kind === 'struct' && (own[0].type === 'factory' || own[0].type === 'hq')) h = go('prod', 'Produci qui');
+  else if (own.length === 1 && own[0].type === 'lab') h = go('res', 'Ricerca');
+  else if (own.some(e => e.builder)) h = go('build', 'Costruisci');
+  return h ? `<div class="sacts">${h}</div>` : '';
 }
 export function renderPanel(force) {
   if (!S) return;
   const k = panelKey();
   if (force || k !== ui.key) {
     ui.key = k;
-    $('sel').innerHTML = htmlSel();
-    for (const b of document.querySelectorAll('#tabs button')) b.classList.toggle('on', b.dataset.tab === ui.tab);
-    $('tabbody').innerHTML = ui.tab === 'build' ? htmlBuild() : ui.tab === 'prod' ? htmlProd() : ui.tab === 'res' ? htmlRes() : htmlDes();
+    $('sel').innerHTML = htmlSel() + (layout.b ? selActions() : '');
+    if (layout.b) { syncDrawer(); $('tabbody').innerHTML = tilesFor(paneTab()); paintTiles($('tabbody')); }
+    else {
+      for (const b of document.querySelectorAll('#tabs button')) b.classList.toggle('on', b.dataset.tab === ui.tab);
+      $('tabbody').innerHTML = ui.tab === 'build' ? htmlBuild() : ui.tab === 'prod' ? htmlProd() : ui.tab === 'res' ? htmlRes() : htmlDes();
+    }
   }
   for (const el of document.querySelectorAll('[data-hp]')) {
     const v = el.dataset.hp; let f;
@@ -249,6 +271,7 @@ export function renderPanel(force) {
 export function updateBar() {
   if (!S) return;
   $('roRes').textContent = fmtN(S.res[P]);
+  if (layout.b) $('drawRes').textContent = fmtN(S.res[P]);
   $('roPumps').textContent = S.ents.filter(e => !e.dead && e.owner === P && e.type === 'pump' && e.built >= 1).length;
   $('roUnits').textContent = S.ents.filter(e => !e.dead && e.owner === P && e.kind === 'unit').length;
   $('roTime').textContent = fmtTime(S.time);
@@ -268,13 +291,22 @@ export function updateBar() {
   }
 }
 // Contatore dei mezzi selezionati sulla barra della mappa (a ogni fotogramma: costa poco e risponde subito).
-let selShown = -1;
+// Nella disposizione B è il riquadro della selezione: numero, salute media (barra) e, per un edificio, il nome.
+let selShown = '';
 export function updateSelCount() {
   if (!S) return;
-  const n = selUnits().length; if (n === selShown) return;
-  selShown = n; const el = $('selCount'); if (!el) return;
-  el.querySelector('b').textContent = n; el.classList.toggle('zero', !n);
-  el.setAttribute('aria-label', n === 1 ? '1 mezzo selezionato' : `${n} mezzi selezionati`);
+  const es = layout.b ? selEnts() : null, n = selUnits().length, key = layout.b ? `B${n}:${es.length}:${es.length === 1 ? es[0].id : ''}` : String(n);
+  if (key === selShown) return;
+  selShown = key; const el = $('selCount'); if (!el) return;
+  if (!layout.b) {
+    el.querySelector('b').textContent = n; el.querySelector('small').textContent = 'sel.'; el.classList.toggle('zero', !n);
+    el.setAttribute('aria-label', n === 1 ? '1 mezzo selezionato' : `${n} mezzi selezionati`);
+    return;
+  }
+  const one = !n && es.length === 1 ? es[0] : null;
+  const what = n ? (n === 1 ? 'mezzo' : 'mezzi') : one ? (one.kind === 'struct' ? STRUCTS[one.type].name : one.builder ? 'Geniere' : designName(one.d)) : es.length ? 'selezionati' : 'mezzi';
+  el.querySelector('b').textContent = n || es.length; el.querySelector('small').textContent = what; el.classList.toggle('zero', !n && !es.length);
+  el.setAttribute('aria-label', `${n || es.length} ${what}${one && one.owner !== P ? ' (nemico)' : ''}: tocca per il dettaglio`);
 }
 // Sfumatura sul lato da cui la barra degli ordini continua (quando non ci sta tutta).
 function syncBarFade() {
@@ -315,8 +347,12 @@ export function initUI(cv) {
   $('panel').addEventListener('click', e => {
     const b = e.target.closest('[data-act]'); if (!b || b.disabled || !S) return;
     const a = b.dataset.act;
+    if (a === 'tab' && layout.b) { ui.placing = null; toggleDrawer(b.dataset.tab); return; }
+    if (a === 'go') { openDrawer(b.dataset.tab); return; }
+    if (a === 'place' && layout.b) { startPlacing(b.dataset.type); return; }
     if (a === 'tab') { ui.tab = b.dataset.tab; ui.placing = null; }
     else if (a === 'place') { ui.placing = ui.placing === b.dataset.type ? null : b.dataset.type; ui.amove = false; }
+    else if (a === 'selfree') { const f = freeBuilders(); setSel((f.length ? f : S.ents.filter(x => x.owner === P && x.builder && !x.dead)).map(x => x.id)); }
     else if (a === 'selb') setSel(S.ents.filter(x => x.owner === P && x.builder && !x.dead).map(x => x.id));
     else if (a === 'producer') ui.producer = +b.dataset.id;
     else if (a === 'prodb') { const s = ent(ui.producer); if (s) enqueue(s, null, P); }
@@ -405,6 +441,13 @@ export const CONTROLS = `<p class="sec ctlh">Mouse e tastiera</p><dl class="cont
   <div><dt>Avvisi · «Allarme»</dt><dd>tocca un avviso per andare lì; «Allarme» porta all’ultimo scontro, toccato di nuovo ai precedenti; le frecce ai bordi indicano scontri fuori visuale</dd></div>
   <div><dt>Minimappa</dt><dd>tocco: visuale lì · tieni premuto con mezzi selezionati: mandali lì</dd></div>
 </dl>`;
+// Disposizione B (telefono): barra delle schede, cassetto e piazzamento con conferma.
+const CONTROLS_B = `<p class="sec ctlh">Barra e cassetto</p><dl class="controls">
+  <div><dt>Schede</dt><dd>Costruisci, Produci, Ricerca, Progetta e Menu aprono il cassetto; toccale di nuovo, tocca ✕ o scorri il cassetto verso il bordo per chiuderlo. La mappa resta giocabile</dd></div>
+  <div><dt>Edifici</dt><dd>tocca una tessera di Costruisci, trascina l’edificio con un dito (o tocca il punto), poi ✓; ✕ annulla</dd></div>
+  <div><dt>Produci</dt><dd>tocco: un mezzo in coda · tieni premuto: cinque · tocco sulla coda: toglilo e riprendi il gasolio</dd></div>
+  <div><dt>Selezione</dt><dd>il riquadro in basso a sinistra apre il dettaglio; toccare una tua fabbrica apre Produci, il laboratorio Ricerca</dd></div>
+</dl>`;
 export const ov = () => $('overlay');
 export const randomSeed = () => (Math.random() * 1e9) | 0;
 // Manuale da campo con le impostazioni di suono, musica ed effetti. back: cosa fare alla chiusura (dal menu si torna al menu;
@@ -423,7 +466,7 @@ export function showHelp(back) {
   <div class="audioset"><span class="lbl">Musica</span><button class="btn" id="ovMusic" aria-pressed="true">Accesa</button>
     <label for="ovMVol">Volume</label><input type="range" id="ovMVol" min="0" max="100" step="5" aria-label="Volume della musica"><output id="ovMVolV">50%</output></div>
   <div class="audioset" role="group" aria-label="Qualità degli effetti"><span class="lbl">Effetti</span>${FX_OPTS.map(([k, l]) => `<button class="btn" data-fx="${k}">${l}</button>`).join('')}<output id="ovFxV"></output></div>
-  ${CONTROLS}<div class="actions"><button class="primary" id="ovClose">${back ? 'Torna al menu' : 'Torna alla partita'}</button></div></div>`;
+  ${CONTROLS}${layout.b ? CONTROLS_B : ''}<div class="actions"><button class="primary" id="ovClose">${back ? 'Torna al menu' : 'Torna alla partita'}</button></div></div>`;
   $('ovSound').addEventListener('click', () => setSound(!soundOn()));
   $('ovVol').addEventListener('input', e => setVolume(e.target.value / 100));
   syncSound();

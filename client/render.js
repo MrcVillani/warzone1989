@@ -5,6 +5,7 @@ import {
 } from '../engine/index.js';
 import { ui, cam, view, hover, fxs, PAL, reducedMotion } from './state.js';
 import { fxq } from './quality.js';
+import { layout } from './layout.js';
 import {
   unitPose, poseOf, RECOIL, kick, recoil, openDoor, doorOpen, drawSite, makeFireball, drawFireball, makeRubble, wreckShape,
   resetAnim, pruneAnim,
@@ -1175,6 +1176,9 @@ export function render(now) {
     if (b.long) { g.strokeStyle = 'rgba(240,194,122,0.85)'; g.lineWidth = 2; g.beginPath(); g.arc(b.sx, b.sy, 24, 0, 7); g.stroke(); }
     g.fillStyle = 'rgba(240,194,122,0.08)'; g.fillRect(x, y, w, h); g.strokeStyle = '#f0c27a'; g.lineWidth = 1; g.strokeRect(x + 0.5, y + 0.5, w, h);
   }
+  // scritta d'aiuto in alto a sinistra solo sul computer: nella disposizione B quell'angolo è della striscia delle
+  // risorse, e attacca-muovi e piazzamento hanno il loro segnale sul pulsante e nella barra del piazzamento
+  if (layout.b) return;
   g.font = '600 12px "IBM Plex Sans Condensed", sans-serif';
   if (ui.amove) { g.fillStyle = 'rgba(17,20,18,0.85)'; g.fillRect(8, 8, 206, 24); g.fillStyle = '#e79a8f'; g.fillText('Attacca-muovi: scegli la destinazione', 16, 24); }
   else if (ui.placing) { g.fillStyle = 'rgba(17,20,18,0.85)'; g.fillRect(8, 8, 246, 24); g.fillStyle = '#f0c27a'; g.fillText(`${STRUCTS[ui.placing].name}: scegli il punto (Esc annulla)`, 16, 24); }

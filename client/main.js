@@ -8,6 +8,8 @@ import { frameTick, onQualityChange, qualityState, setPref } from './quality.js'
 import { initInput, camScroll } from './input.js';
 import { initUI, renderPanel, updateBar, updateSelCount, toast, startGame, randomSeed } from './ui.js';
 import { alertFx, alertPing, alertBuilt, alertToast, updateArrows, resetAlerts } from './alerts.js';
+import { initLayout } from './layout.js';
+import { initDrawer, updatePlacebar } from './drawer.js';
 import { initScreens, showStart, showEnd, showCampaign, showBrief, refreshObjective, resetObjectiveHud, limitText, missionIndex } from './screens.js';
 
 const cv = document.getElementById('view'), mini = document.getElementById('mini');
@@ -87,7 +89,7 @@ function frame(now) {
   if (ui.sel.length && ui.sel.some(id => !ent(id))) ui.sel = ui.sel.filter(id => ent(id));
   guard('camera', () => camScroll(dt));
   guard('disegno', () => render(now));
-  guard('frecce', () => { updateArrows(); updateSelCount(); });
+  guard('frecce', () => { updateArrows(); updateSelCount(); updatePlacebar(); });
   if ((mmT -= dt) <= 0) { mmT = 0.1; guard('minimappa', renderMini); }
   if ((uiT -= dt) <= 0) { uiT = 0.2; guard('pannello', () => { renderPanel(false); updateBar(); if (S && S.timeLimit) limitText(); }); guard('musica', () => { const m = musicFor(); if (m) musicMode(m); }); }
   // qualità adattiva: conta i mezzi in campo due volte al secondo e misura il fotogramma solo a partita in corso
@@ -98,11 +100,13 @@ function frame(now) {
 }
 
 function start(data) {
+  initLayout();
   new ResizeObserver(resize).observe(cv);
   new ResizeObserver(resize).observe(mini);
   resize();
   initInput(cv, mini);
   initUI(cv);
+  initDrawer();
   initScreens();
   let restored = false;
   const ctx = (data && data.ctx) || {};

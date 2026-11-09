@@ -10,6 +10,7 @@ import { runPhaseBChecks } from './faseb.mjs';
 import { runCampaignChecks } from './campagna.mjs';
 import { runPhoneChecks } from './telefono.mjs';
 import { runMusicChecks } from './musica.mjs';
+import { runLayoutBChecks, lbLayout } from './layoutb.mjs';
 
 // Playwright si carica con require: così vale anche l'installazione globale del sistema.
 const { chromium, devices } = createRequire(import.meta.url)('playwright');
@@ -64,7 +65,13 @@ for (const [name, opts] of profiles.filter(([n]) => !only || n === only)) {
   });
   const inside = b => b.w > 0 && b.h > 0 && b.x >= -0.5 && b.y >= -0.5 && b.r <= lay.vw + 0.5 && b.b <= lay.vh + 0.5;
   check(inside(lay.bar) && inside(lay.stage) && inside(lay.panel), `${name}: barra, mappa e pannello dentro lo schermo ${lay.vw}×${lay.vh}`);
-  check(lay.bar.b <= lay.stage.y + 0.5 && lay.bar.b <= lay.panel.y + 0.5, `${name}: la barra non copre mappa e pannello`);
+  // Computer: plancia classica, barra in alto sopra mappa e pannello. Telefono (disposizione B, piano 05): mappa a
+  // tutto schermo con striscia, ordini, minimappa e barra delle schede sopra, che non devono coprirsi tra loro.
+  const lb = await page.evaluate(lbLayout);
+  check(lb.lb === !!opts.hasTouch, `${name}: disposizione ${lb.lb ? 'B (telefono)' : 'classica (computer)'}`);
+  if (!lb.lb) check(lay.bar.b <= lay.stage.y + 0.5 && lay.bar.b <= lay.panel.y + 0.5, `${name}: la barra non copre mappa e pannello`);
+  else check(!lb.overlaps.length && !lb.outside.length && lb.drawerHidden && lb.mapFree,
+    `${name}: la barra delle schede non copre la striscia, il cassetto chiuso lascia libera la mappa e striscia, selezione, ordini, minimappa e barra non si sovrappongono (${lb.overlaps.length ? 'sovrapposti: ' + lb.overlaps.join(', ') : 'nessuna sovrapposizione'}${lb.outside.length ? '; fuori: ' + lb.outside.join(', ') : ''})`);
   check(lay.stage.w >= 0.45 * lay.vw && lay.stage.h >= 0.4 * lay.vh,
     `${name}: la mappa occupa abbastanza spazio (${Math.round(lay.stage.w)}×${Math.round(lay.stage.h)})`);
   // Le schede del pannello (Costruisci, Produzione…) si raggiungono scorrendo il pannello e rispondono al tocco.
@@ -103,6 +110,8 @@ await runCampaignChecks({ browser, url, check, profiles: profiles.filter(([n]) =
 await runPhoneChecks({ browser, url, check, profiles: profiles.filter(([n]) => !only || n === only) });
 // Colonna sonora: primo gesto, menu, calma e battaglia, nebbia, comandi salvati, «Suono» spento (tests/e2e/musica.mjs).
 await runMusicChecks({ browser, url, check, profiles: profiles.filter(([n]) => !only || n === only) });
+// Disposizione B per telefono con tocchi veri (851×393, 740×360, Pixel 7) e computer invariato: piano 05 (tests/e2e/layoutb.mjs).
+await runLayoutBChecks({ browser, url, check, todo, only });
 await browser.close();
 if (known.length) console.log(`\n${known.length} problemi noti (TODO), non bloccanti:\n- ${known.join('\n- ')}`);
 if (failures.length) { console.error(`\n${failures.length} controlli falliti.`); process.exit(1); }

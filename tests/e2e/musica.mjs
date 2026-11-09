@@ -7,6 +7,7 @@
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
+import { openMenu } from './layoutb.mjs';
 
 const { chromium, devices } = createRequire(import.meta.url)('playwright');
 
@@ -193,9 +194,10 @@ export async function runMusicChecks({ browser, url, check, profiles }) {
       check(!b.on && Math.abs(b.volume - 0.3) < 1e-6 && b.ctx === 'running' && !b.played && ui.pressed === 'false' && ui.vol === '30',
         `${name}: dopo il ricaricamento la musica resta spenta e muta anche dopo un gesto (note ${b.played || 0}) e il volume resta al 30% («${ui.txt.trim()}», cursore ${ui.vol}, ${ui.vv})`);
       await page.locator('#ovMusic').click();
-      await page.waitForTimeout(1200);
+      // la prima nota cade sulla battuta del giro in corso: può arrivare fino a 3,3 s dopo (come al punto 7)
+      const tOn = await waitMusic(page, m => m.on && m.timer && m.played > 0, 5);
       const c = await page.evaluate(() => window.__wz.music());
-      check(c.on && c.timer && c.played > 0 && Math.abs(c.volume - 0.3) < 1e-6, `${name}: riaccesa, la musica riparte al volume salvato (note ${c.played}, volume ${c.volume})`);
+      check(tOn >= 0 && c.on && c.timer && c.played > 0 && Math.abs(c.volume - 0.3) < 1e-6, `${name}: riaccesa, la musica riparte al volume salvato (note ${c.played} in ${tOn < 0 ? 'più di 5' : sec(tOn)} s, volume ${c.volume})`);
       await page.keyboard.press('Escape');
       await page.waitForTimeout(200);
     }
@@ -204,6 +206,7 @@ export async function runMusicChecks({ browser, url, check, profiles }) {
     {
       if (await page.locator('#ovStart').isVisible()) await page.locator('#ovStart').click();
       await page.waitForTimeout(500);
+      await openMenu(page); // su telefono «Suono» sta nel cassetto «Menu»
       await page.locator('#btnSound').click();
       await page.waitForTimeout(700);
       const a = await page.evaluate(() => ({ ...window.__wz.music(), rms: window.__rms(), en: window.__wz.audio().enabled }));
@@ -212,6 +215,7 @@ export async function runMusicChecks({ browser, url, check, profiles }) {
       const silent = x => x.ctx !== 'running' || x.rms < 1e-4;
       check(!a.en && silent(a) && silent(b) && (b.ctx !== 'running' ? b.played === a.played : true),
         `${name}: con «Suono» spento la musica tace (contesto ${b.ctx}, livello ${b.rms.toFixed(4)}, note ${a.played} → ${b.played})`);
+      await openMenu(page);
       await page.locator('#btnSound').click();
       // la musica riprende dal punto del giro in cui è l'orologio: la prossima nota può essere a una battuta (3,3 s)
       const tBack = await waitMusic(page, m => m.ctx === 'running' && m.played > b.played, 5);

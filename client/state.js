@@ -12,6 +12,9 @@ export const ui = {
   resFold: {},
   // techBefore: ricerche della campagna all'avvio della missione in corso (per il rapporto: quelle nuove)
   techBefore: [],
+  // Disposizione B (telefono): drawer = cassetto aperto (build, prod, res, des, sel, menu) o null; ghost = punto del
+  // mondo dove sta l'edificio da piazzare (centro dell'edificio); miniBig = minimappa ingrandita.
+  drawer: null, ghost: null, miniBig: false,
 };
 export const cam = { x: 0, y: 0, z: 1 };
 export const view = { dpr: 1, cw: 800, ch: 600 };

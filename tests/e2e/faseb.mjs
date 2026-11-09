@@ -8,6 +8,7 @@ import { createRequire } from 'node:module';
 import { mkdirSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
+import { openMenu } from './layoutb.mjs';
 
 const { chromium, devices } = createRequire(import.meta.url)('playwright');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -211,14 +212,23 @@ export async function runPhaseBChecks({ browser, url, check, todo = check, profi
       const en = await page.evaluate(() => { const b = document.querySelector('#tabbody [data-act="place"][data-type="bunker"]'); return { dis: b.disabled, ds: b.querySelector('.ds').textContent }; });
       if (!en.dis) await press(page, touch, '#tabbody [data-act="place"][data-type="bunker"]');
       const placing = await page.evaluate(() => window.__wz.ui.placing);
+      // Su telefono (disposizione B, piano 05) il tocco porta lì l'edificio ma non lo costruisce: serve ✓.
+      const lb = await page.evaluate(() => document.documentElement.classList.contains('lb'));
+      if (lb) await page.waitForTimeout(300); // il cassetto si chiude scorrendo
       const at = await page.evaluate(([x, y]) => __fb.scr(x, y), [p.wx, p.wy]);
       if (at.onMap) { if (touch) await page.touchscreen.tap(at.x, at.y); else await page.mouse.click(at.x, at.y); await page.waitForTimeout(100); }
+      let wait = null;
+      if (lb) {
+        wait = await page.evaluate(() => ({ n: window.__wz.engine.S.ents.filter(e => e.type === 'bunker' && !e.dead).length, placing: window.__wz.ui.placing, bar: !document.getElementById('placebar').hidden }));
+        await press(page, touch, '#btnPlaceOk');
+      }
       const r = await page.evaluate(([bid, tx, ty]) => {
         const E = window.__wz.engine, bk = E.S.ents.find(e => e.type === 'bunker' && e.owner === 0 && !e.dead);
         return { bk: bk ? { tx: bk.tx, ty: bk.ty, id: bk.id } : null, order: E.ent(bid).order, placing: window.__wz.ui.placing };
       }, [s.bid, p.tx, p.ty]);
+      if (lb) check(wait.n === 0 && wait.placing === 'bunker' && wait.bar, `${name}: su telefono il ${how} sulla mappa sposta il bunker ma non lo costruisce prima di ✓ (bunker ${wait.n}, conferma ${wait.bar ? 'visibile' : 'nascosta'})`);
       check(!en.dis && placing === 'bunker' && at.onMap && r.bk && r.bk.tx === p.tx && r.bk.ty === p.ty && r.order.t === 'build' && r.order.id === r.bk.id,
-        `${name}: con la ricerca il bunker si sceglie e si piazza con un ${how} sulla mappa (pulsante ${en.dis ? 'spento' : 'attivo'}, bunker ${r.bk ? `in ${r.bk.tx},${r.bk.ty}` : 'assente'}, geniere: ${r.order.t}${at.onMap ? '' : ', punto coperto da ' + at.under})`);
+        `${name}: con la ricerca il bunker si sceglie e si piazza con un ${how} sulla mappa${lb ? ' e ✓' : ''} (pulsante ${en.dis ? 'spento' : 'attivo'}, bunker ${r.bk ? `in ${r.bk.tx},${r.bk.ty}` : 'assente'}, geniere: ${r.order.t}${at.onMap ? '' : ', punto coperto da ' + at.under})`);
     }
 
     // 4. Battaglia con tutte le armi nuove e un bunker: niente errori, niente numeri non validi, screenshot.
@@ -275,6 +285,7 @@ export async function runPhaseBChecks({ browser, url, check, todo = check, profi
 
     // 5. Qualità adattiva: la scelta «Effetti» cambia il livello, resta dopo il ricaricamento, «Bassi» rispetta il tetto.
     {
+      await openMenu(page); // su telefono «Comandi» sta nel cassetto «Menu»
       await press(page, touch, '#btnHelp');
       await press(page, touch, '#overlay [data-fx="bassa"]');
       const q1 = await page.evaluate(() => ({ q: window.__wz.fxq(), on: document.querySelector('#overlay [data-fx="bassa"]').getAttribute('aria-pressed'), ls: localStorage.getItem('wz.effetti') }));
@@ -290,6 +301,7 @@ export async function runPhaseBChecks({ browser, url, check, todo = check, profi
       const q4 = await page.evaluate(() => window.__wz.fxq());
       await page.locator('#ovStart').click();
       await page.evaluate(installHelpers);
+      await openMenu(page);
       await press(page, touch, '#btnHelp');
       const q4b = await page.evaluate(() => document.querySelector('#overlay [data-fx="bassa"]').getAttribute('aria-pressed'));
       await press(page, touch, '#ovClose');
