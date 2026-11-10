@@ -548,7 +548,7 @@ export function createMusic(ctx, dest, opts = {}) {
   }
 
   /* ---------- orologio, sezioni e strati ---------- */
-  let mode = 'off', secStart = null, n = 0, lastNow = 0, finEnd = 0, stingEnd = 0;
+  let mode = 'off', secStart = null, n = 0, lastNow = 0, finEnd = 0, stingEnd = 0, finDone = false;
   let raw = 0, sm = 0, lastHit = -1e9, lastUp = 0, state = 'calm', lastDuck = -1e9;
   // Profilo della sezione in corso e profilo chiesto per la prossima partita; pend: fase nuova, al prossimo giro.
   let prof = DEFAULT_PROFILE, wantProf = DEFAULT_PROFILE, pend = null;
@@ -575,7 +575,7 @@ export function createMusic(ctx, dest, opts = {}) {
     if (m === mode) return;
     const was = isSec(mode);
     if (was) cut(t);
-    mode = m; pend = null; timeline.push({ t, mode: m });
+    mode = m; pend = null; finDone = false; timeline.push({ t, mode: m });
     if (isSec(m)) {
       let ts = t + (was ? 0.55 : 0.05);
       if (m === 'finale') ts = Math.max(ts, stingEnd - 1.5);   // dopo la frase di vittoria, se suona ancora
@@ -635,12 +635,16 @@ export function createMusic(ctx, dest, opts = {}) {
     else if (sm < 0.25) next = sm < 0.1 ? 'calm' : 'tension';
     if (next !== state && t >= secStart) enter(next, t);
   }
-  // Pianifica i sedicesimi che cadono prima di until. Se l'orologio è rimasto indietro, salta avanti.
+  // Pianifica i sedicesimi che cadono prima di until. Se l'orologio è rimasto indietro, salta avanti; se la sezione
+  // non ha ancora suonato nulla (thread principale occupato appena dopo l'avvio), la fa partire da capo poco dopo.
   function schedule(now, until) {
     lastNow = now;
-    if (mode === 'finale' && now > finEnd) setMode('menu', now);   // finita «Valle liberata», torna il tema del menu
+    if (mode === 'finale' && now > finEnd) { setMode('menu', now); finDone = true; }   // finita «Valle liberata», torna il tema del menu
     if (secStart == null) return;
-    if (secStart + n * STEP < now - 0.05) n = Math.ceil((now - secStart) / STEP);
+    if (secStart + n * STEP < now - 0.05) {
+      if (n === 0) { const ts = now + 0.05; if (mode === 'finale') finEnd += ts - secStart; secStart = ts; }
+      else n = Math.ceil((now - secStart) / STEP);
+    }
     for (let tn = secStart + n * STEP; tn < until; tn = secStart + n * STEP) {
       if (pend && (n & 127) === 0) { useProfile(pend); pend = null; }
       const j = (rnd() - 0.5) * 0.008;   // un filo d'imprecisione umana
@@ -842,6 +846,7 @@ export function createMusic(ctx, dest, opts = {}) {
 
   return {
     setMode, setProfile, hit, force, update, schedule, duck, setVolume,
+    finished: () => finDone,   // «Valle liberata» è finita da sola (e si è tornati al tema del menu)
     sting: (kind, t) => sting(kind, t),
     state: () => ({ mode, state, profile: prof.id, key: prof.key, bpm: prof.bpm, intensity: +sm.toFixed(3), notes: notes.length, live: live.length, played: stats.notes, dropped: stats.dropped }),
     timeline,
@@ -858,7 +863,9 @@ const VOL_SCALE = 0.9;   // la musica resta sotto gli effetti anche con il suo c
 
 let mOn = load(KEY_ON, '1') !== '0';
 let mVol = clamp01(parseFloat(load(KEY_VOL, '0.5')));
-let eng = null, ac = null, timer = 0, want = 'menu', wantKey = null;
+let eng = null, ac = null, timer = 0, want = 'menu', wantKey = null, finHeard = false;
+// Il momento da suonare: «Valle liberata» finita da sola non riparte (né riaccendendo la musica): resta il menu.
+const cur = () => (want === 'finale' && finHeard ? 'menu' : want);
 const listeners = new Set();
 const changed = () => { for (const f of listeners) f(); };
 
@@ -870,7 +877,7 @@ export function attachMusic(ctx, dest) {
   if (eng) return;
   ac = ctx; eng = createMusic(ctx, dest, { volume: mOn ? mVol * VOL_SCALE : 0 });
   eng.setProfile(wantKey, ctx.currentTime);
-  if (mOn) eng.setMode(want, ctx.currentTime);
+  if (mOn) eng.setMode(cur(), ctx.currentTime);
   document.addEventListener('visibilitychange', run);
   run();
 }
@@ -884,13 +891,14 @@ function tick() {
   if (!eng || ac.state !== 'running') return;
   const now = ac.currentTime;
   eng.update(now); eng.schedule(now, now + LOOKAHEAD);
+  if (want === 'finale' && eng.finished()) finHeard = true;
 }
 export function setMusic(on) {
   mOn = !!on; save(KEY_ON, mOn ? '1' : '0');
   if (eng) {
     const t = ac.currentTime;
     eng.setVolume(mOn ? mVol * VOL_SCALE : 0, t);
-    eng.setMode(mOn ? want : 'off', t);
+    eng.setMode(mOn ? cur() : 'off', t);
   }
   run(); changed();
 }
@@ -911,10 +919,10 @@ export function musicMission(id, stage) {
 // precedente non cambiano nulla.
 export function musicMode(m) {
   if (m === want) return;
-  want = m;
+  want = m; finHeard = false;
   if (eng && mOn) eng.setMode(m, ac.currentTime);
 }
 export function musicHit(w) { if (eng && mOn && w > 0) eng.hit(w, ac.currentTime); }
 export function musicDuck(amount) { if (eng && mOn) eng.duck(amount, ac.currentTime); }
 export function musicSting(kind) { if (eng && mOn && ac.state === 'running') eng.sting(kind, ac.currentTime + 0.02); }
-export function musicState() { return { on: mOn, volume: mVol, want, ctx: ac ? ac.state : 'none', timer: !!timer, ...(eng ? eng.state() : {}) }; }
+export function musicState() { return { on: mOn, volume: mVol, want: cur(), ctx: ac ? ac.state : 'none', timer: !!timer, ...(eng ? eng.state() : {}) }; }
