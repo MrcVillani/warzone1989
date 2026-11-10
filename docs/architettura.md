@@ -91,7 +91,7 @@ proiettili in volo, che `loadState` rimette nell'array `proj`.
 | `screens.js` | menu principale (Campagna, Schermaglia), elenco missioni, briefing, indicatore dell'obiettivo, rapporti di fine missione e di schermaglia, schermata finale, conferma d'uscita |
 | `campaign.js` | salvataggio della campagna sul dispositivo (`localStorage`, chiave `wz.campagna`) |
 | `audio.js` | suoni sintetizzati con Web Audio, posizionati rispetto alla visuale, con limite di voci; volume e acceso/spento salvati sul dispositivo |
-| `music.js` | colonna sonora originale generata in tempo reale: strati calma, tensione e battaglia sullo stesso orologio e sulla stessa armonia, con dissolvenze guidate dall'intensità dei combattimenti; temi del menu, vittoria, sconfitta e cambio di fase; volume e acceso/spento salvati sul dispositivo |
+| `music.js` | colonna sonora originale generata in tempo reale: strati calma, tensione e battaglia sullo stesso orologio e sulla stessa armonia, con dissolvenze guidate dall'intensità dei combattimenti; temi del menu, vittoria, sconfitta e cambio di fase; un profilo per ogni missione della campagna (`musicMission(id, fase)`: tonalità, tempo, variante del tema, strumenti), frase «Valle liberata» alla fine della campagna; volume e acceso/spento salvati sul dispositivo |
 | `anim.js` | animazioni del client: assetto e rinculo dei mezzi, porte delle fabbriche, cantiere con gru, palla di fuoco, macerie degli edifici; rispetta qualità adattiva e «riduci movimento» |
 | `alerts.js` | posizione degli avvisi toccabili, pulsante «Allarme» (ultimi scontri), frecce ai bordi per gli scontri fuori visuale |
 | `quality.js` | qualità adattiva degli effetti (alta, media, bassa): misura il tempo per fotogramma e regola particelle, tracce e risoluzione della tela; scelta «Effetti» salvata sul dispositivo |
@@ -116,10 +116,17 @@ bilanciamento in [`bilanciamento.md`](bilanciamento.md).
 - `dist/index.html`: documento completo, per browser e per l'app Android;
 - `dist/artifact.html`: frammento per l'anteprima pubblicata su claude.ai.
 
+## Colonna sonora
+
+`npm run ost` registra con lo stesso motore musicale (`client/music.js` su `OfflineAudioContext`) l'album
+«Operazione Valle Grigia» in `dist/ost/`: 11 tracce MP3 a 192 kbps (tema del menu, una traccia per missione,
+«Valle liberata», «Brigata sconfitta») con tag ID3 e `scaletta.txt`. `npm run ost -- 3 8` rigenera solo alcune
+tracce. La cartella è generata e non sta nel repository.
+
 ## Android
 
 `android/` è un guscio nativo minimo: una `MainActivity` con una WebView a schermo intero e in orizzontale che carica
-`file:///android_asset/index.html`. Nessun permesso, nessuna libreria AndroidX. `scripts/android-sdk.sh` installa
+`file:///android_asset/index.html`. Unico permesso `VIBRATE`, nessuna libreria AndroidX. `scripts/android-sdk.sh` installa
 l'SDK in `~/android-sdk` (piattaforma e build-tools 35); `npm run android` fa la build web, copia `dist/index.html`
 negli asset (file generato, ignorato da git), lancia `./gradlew assembleDebug` e copia l'APK in
 `dist/warzone1989.apk`, firmato con la chiave di debug della macchina di build.
