@@ -1,6 +1,7 @@
 // Prove della colonna sonora adattiva (piano 03) nel browser: partenza al primo gesto, tema del menu, passaggio
 // calma → battaglia → calma guidato dagli scontri visibili, scontri nella nebbia ignorati, «Musica» e volume salvati,
-// silenzio con «Suono» spento, nessun errore.
+// silenzio con «Suono» spento, primo accordo con il thread occupato, «Valle liberata» che finita non riparte,
+// nessun errore.
 // Le richiama smoke.mjs (npm run e2e); si possono lanciare anche da sole: npm run build && node tests/e2e/musica.mjs
 // Lo stato si legge con window.__wz.music(); l'uscita audio reale con un analizzatore agganciato alla destinazione
 // del contesto audio (init script che intercetta AudioNode.connect).
@@ -99,7 +100,7 @@ const sec = v => v.toFixed(1).replace('.', ',');
 
 // Primo gesto con il thread principale occupato per busyMs subito dopo (macchina carica, telefono lento): istanti
 // delle prime note della musica rispetto all'inizio della sezione del menu.
-async function firstNotesUnderLoad(browser, opts, url, busyMs) {
+export async function firstNotesUnderLoad(browser, opts, url, busyMs) {
   const ctx = await browser.newContext(opts);
   await ctx.addInitScript(ms => {
     window.__starts = [];
@@ -121,15 +122,78 @@ async function firstNotesUnderLoad(browser, opts, url, busyMs) {
   return { t, first };
 }
 
-export async function runMusicChecks({ browser, url, check, todo = (ok, msg) => console.log(`${ok ? 'ok  ' : 'TODO'} ${msg}`), profiles }) {
-  // Difetto noto (segnalato al frontend): la prima sezione parte 0,05 s dopo il gesto e la pianificazione salta i
-  // sedicesimi rimasti indietro di oltre 0,05 s; basta un thread principale occupato per 80 ms e il primo accordo
-  // del tema del menu non suona. Non blocca la prova: TODO finché non è corretto.
+// «Valle liberata» con l'orologio audio fatto avanzare a mano: il modulo client/music.js (non il gioco costruito)
+// collegato a un OfflineAudioContext il cui currentTime lo decide la prova; il timer della musica gira davvero (50 ms).
+// Si comporta come main.js: la richiesta 'finale' ripetuta a ogni passo (ogni 0,2 s nel gioco).
+async function finaleOnce() {
+  const W = window.WZM; let T = 0;
+  const off = new OfflineAudioContext(2, 22050, 22050);
+  const fake = new Proxy(off, { get(t, k) { if (k === 'currentTime') return T; if (k === 'state') return 'running'; const v = t[k]; return typeof v === 'function' ? v.bind(t) : v; } });
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const st = () => { const m = W.musicState(); return { want: m.want, mode: m.mode, profile: m.profile, key: m.key, bpm: m.bpm, played: m.played }; };
+  const step = async t => { T = t; W.musicMode('finale'); await wait(70); return st(); };
+  W.setMusic(true); W.attachMusic(fake, off.destination); W.musicMode('finale');
+  const r = { start: await step(0.1), tMenu: -1, finale: null, after: [] };
+  // fino a 120 s a passi di 1 s: quando torna il menu, e che cosa si chiede in quel momento
+  for (let t = 1; t <= 120 && r.tMenu < 0; t++) {
+    const s = await step(t);
+    if (s.mode === 'finale') r.finale = s;
+    if (s.mode === 'menu') { r.tMenu = t; r.atEnd = s; }
+  }
+  // dopo la fine: 12 s di richieste 'finale' ripetute ogni 0,2 s (tempo virtuale) non la fanno ripartire
+  if (r.tMenu > 0) {
+    const t0 = r.tMenu, modes = new Set(), wants = new Set();
+    for (let t = t0 + 0.2; t < t0 + 12; t = +(t + 0.2).toFixed(2)) { const s = await step(t); modes.add(s.mode); wants.add(s.want); }
+    r.repeated = { modes: [...modes], wants: [...wants], played: st().played };
+    // musica spenta e riaccesa (richiesta 'finale' sempre in corso): resta il menu
+    W.setMusic(false); const off1 = st();
+    W.setMusic(true); const back = await step(t0 + 31); const back2 = await step(t0 + 33);
+    r.toggle = { off: off1, back, back2 };
+    // un altro momento (il menu) e poi una nuova richiesta 'finale': riparte da capo
+    T = t0 + 34; W.musicMode('menu'); await wait(70);
+    const again = await step(t0 + 35), again2 = await step(t0 + 40);
+    r.again = { again, again2 };
+  }
+  return r;
+}
+
+async function checkFinaleOnce(browser, check) {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+  const { build } = createRequire(import.meta.url)('esbuild');
+  const js = (await build({ entryPoints: [path.join(root, 'client/music.js')], bundle: true, format: 'iife', globalName: 'WZM', write: false, target: 'es2020' })).outputFiles[0].text;
+  const page = await browser.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await page.setContent('<!doctype html><title>Valle liberata</title>');
+  await page.addScriptTag({ content: js });
+  const t0 = Date.now();
+  const r = await page.evaluate(finaleOnce);
+  await page.close();
+  const f = r.finale;
+  check(r.start.mode === 'finale' && r.start.want === 'finale' && f && f.profile === 'valle-liberata' && f.key === 're maggiore' && f.bpm === 80,
+    `«Valle liberata» (orologio audio a mano): chiesta, parte (modo ${r.start.mode}, profilo ${f ? f.profile : '—'}, ${f ? `${f.key}, ${f.bpm} battiti` : '—'})`);
+  check(r.tMenu >= 84 && r.tMenu <= 93 && r.atEnd.want === 'menu' && r.atEnd.mode === 'menu' && r.atEnd.profile === null,
+    `«Valle liberata» finisce da sola dopo ${r.tMenu < 0 ? 'più di 120' : r.tMenu} s e musicState().want diventa «${r.atEnd ? r.atEnd.want : '—'}» (modo ${r.atEnd ? r.atEnd.mode : '—'}; attesi 84–93 s e «menu»)`);
+  if (r.tMenu < 0) return;
+  const rp = r.repeated, tg = r.toggle, ag = r.again;
+  check(rp.modes.length === 1 && rp.modes[0] === 'menu' && rp.wants.length === 1 && rp.wants[0] === 'menu',
+    `«Valle liberata» finita: 12 s di richieste «finale» ripetute ogni 0,2 s non la fanno ripartire (modi ${JSON.stringify(rp.modes)}, want ${JSON.stringify(rp.wants)})`);
+  check(tg.off.mode === 'off' && [tg.back, tg.back2].every(s => s.mode === 'menu' && s.want === 'menu' && s.profile === null),
+    `«Valle liberata» finita: spenta e riaccesa la musica resta il tema del menu (spenta ${tg.off.mode}, riaccesa ${tg.back.mode}/${tg.back2.mode}, profilo ${tg.back2.profile})`);
+  check([ag.again, ag.again2].every(s => s.mode === 'finale' && s.want === 'finale' && s.profile === 'valle-liberata') && ag.again2.played > ag.again.played,
+    `«Valle liberata»: una nuova richiesta «finale» dopo un altro momento la fa ripartire (modo ${ag.again.mode}/${ag.again2.mode}, profilo ${ag.again2.profile}, note ${ag.again.played} → ${ag.again2.played})`);
+  check(!errors.length, `«Valle liberata» con l'orologio a mano: nessun errore (${sec((Date.now() - t0) / 1000)} s)${errors.length ? ': ' + errors.join(' | ') : ''}`);
+}
+
+export async function runMusicChecks({ browser, url, check, profiles }) {
+  // Primo gesto con il thread principale occupato (macchina carica, telefono lento): il tema del menu deve partire
+  // dal primo accordo, con la prima nota a circa 0,2 s del contesto audio, non saltarlo e ripartire mezzo giro dopo.
   if (profiles.some(([n]) => n === 'desktop')) {
     const r = await firstNotesUnderLoad(browser, { viewport: { width: 1280, height: 800 } }, url, 120);
-    todo(r.t >= 0 && r.t <= 0.8 && r.first < 0.3,
-      `desktop: con il thread principale occupato 120 ms dopo il primo gesto il tema del menu parte dal primo accordo (prima nota pianificata a ${Number.isFinite(r.first) ? sec(r.first) : '—'} s del contesto audio, note dopo ${r.t < 0 ? 'più di 4' : sec(r.t)} s; atteso entro 0,8 s)`);
+    check(r.t >= 0 && r.t <= 0.8 && Number.isFinite(r.first) && r.first < 0.45,
+      `desktop: con il thread principale occupato 120 ms dopo il primo gesto il tema del menu parte dal primo accordo (prima nota pianificata a ${Number.isFinite(r.first) ? r.first.toFixed(2).replace('.', ',') : '—'} s del contesto audio, note dopo ${r.t < 0 ? 'più di 4' : sec(r.t)} s; attesa circa 0,2 s e comunque sotto 0,45 s, note entro 0,8 s; col difetto era a 1,8 s)`);
   }
+  await checkFinaleOnce(browser, check);
   for (const [name, opts] of profiles) {
     const touch = !!opts.hasTouch;
     const ctx = await browser.newContext(opts);
@@ -146,9 +210,8 @@ export async function runMusicChecks({ browser, url, check, todo = (ok, msg) => 
     const m0 = await page.evaluate(() => window.__wz.music());
     check(m0.ctx === 'none' && !m0.timer && !m0.played, `${name}: la musica non parte prima di un gesto (contesto ${m0.ctx}, note ${m0.played || 0})`);
     await gesture(page, touch, '#ovt');   // un tocco sul titolo: è un gesto, ma si resta nel menu
-    // Attesa per condizione (non un tempo fisso): se il thread principale è occupato appena dopo il gesto la musica
-    // perde il primo battere e la prima nota arriva sul mezzo giro successivo, circa 1,7 s dopo (difetto noto,
-    // riprodotto a parte più sotto); qui conta che il tema parta e si senta.
+    // Attesa per condizione (non un tempo fisso): qui conta che il tema parta e si senta; la partenza dal primo
+    // accordo anche con il thread occupato si prova a parte (firstNotesUnderLoad).
     const tM1 = await waitFor(page, () => {
       const m = window.__wz.music();
       return window.__wz.ui.overlay === 'start' && m.ctx === 'running' && m.timer && m.mode === 'menu' && m.played > 0 && window.__rms() > 0.002;
