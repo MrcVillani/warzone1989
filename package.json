@@ -9,9 +9,11 @@
     "test": "node --test \"engine/test/*.test.js\"",
     "e2e": "npm run build && node tests/e2e/smoke.mjs",
     "android": "node scripts/android.mjs",
-    "check": "npm test && npm run e2e"
+    "check": "npm test && npm run e2e",
+    "ost": "node scripts/ost.mjs"
   },
   "devDependencies": {
+    "@breezystack/lamejs": "1.2.7",
     "esbuild": "0.24.2"
   }
 }

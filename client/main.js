@@ -3,7 +3,7 @@ import { P, S, ent, onEvent, step, loadState, serialize } from '../engine/index.
 import { ui, fxs } from './state.js';
 import { initRender, resize, renderTerrain, updateFogImage, spawnFx, updParts, render, renderMini, resetFx, unitSpawned, structPlaced, structBuilt } from './render.js';
 import { initAudio, fxSound, uiSfx, audioState, onAudioReady, heard } from './audio.js';
-import { attachMusic, musicMode, musicHit, musicDuck, musicState } from './music.js';
+import { attachMusic, musicMode, musicMission, musicHit, musicDuck, musicState } from './music.js';
 import { frameTick, onQualityChange, qualityState, setPref } from './quality.js';
 import { initInput, camScroll } from './input.js';
 import { initUI, renderPanel, updateBar, updateSelCount, toast, startGame, randomSeed } from './ui.js';
@@ -55,11 +55,12 @@ function musicFx(e) {
     else if (w) { musicHit(0.02 * w); if (e.size >= 1.5 && w > 0.5) musicDuck(0.2); }
   }
 }
-// Momento musicale secondo la schermata: menu, partita, vittoria o sconfitta. Il manuale e la conferma d'uscita
-// lasciano la musica com'è.
+// Momento musicale secondo la schermata: menu, partita, vittoria o sconfitta; alla fine della campagna «Valle
+// liberata». Il manuale e la conferma d'uscita lasciano la musica com'è.
 function musicFor() {
   const o = ui.overlay;
-  if (o === 'start' || o === 'campaign' || o === 'brief' || o === 'final') return 'menu';
+  if (o === 'final') return 'finale';
+  if (o === 'start' || o === 'campaign' || o === 'brief') return 'menu';
   if (o === 'help' || o === 'exit' || !S) return null;
   if (S.phase === 'won') return 'win';
   if (S.phase === 'lost') return 'lose';
@@ -91,7 +92,7 @@ function frame(now) {
   guard('disegno', () => render(now));
   guard('frecce', () => { updateArrows(); updateSelCount(); updatePlacebar(); });
   if ((mmT -= dt) <= 0) { mmT = 0.1; guard('minimappa', renderMini); }
-  if ((uiT -= dt) <= 0) { uiT = 0.2; guard('pannello', () => { renderPanel(false); updateBar(); if (S && S.timeLimit) limitText(); }); guard('musica', () => { const m = musicFor(); if (m) musicMode(m); }); }
+  if ((uiT -= dt) <= 0) { uiT = 0.2; guard('pannello', () => { renderPanel(false); updateBar(); if (S && S.timeLimit) limitText(); }); guard('musica', () => { const m = musicFor(); if (m) { musicMission(S && S.mission, S && S.objective && S.objective.stage); musicMode(m); } }); }
   // qualità adattiva: conta i mezzi in campo due volte al secondo e misura il fotogramma solo a partita in corso
   const running = !!S && !ui.paused && !ui.overlay && S.phase === 'play';
   let units = null;
