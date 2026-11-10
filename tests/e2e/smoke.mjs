@@ -10,6 +10,7 @@ import { runPhaseBChecks } from './faseb.mjs';
 import { runCampaignChecks } from './campagna.mjs';
 import { runPhoneChecks } from './telefono.mjs';
 import { runMusicChecks } from './musica.mjs';
+import { runOstChecks } from './ost.mjs';
 import { runLayoutBChecks, lbLayout } from './layoutb.mjs';
 
 // Playwright si carica con require: così vale anche l'installazione globale del sistema.
@@ -109,7 +110,10 @@ await runCampaignChecks({ browser, url, check, profiles: profiles.filter(([n]) =
 // Gesti su telefono con tocchi veri (CDP) e computer invariato: piano 04 (tests/e2e/telefono.mjs).
 await runPhoneChecks({ browser, url, check, profiles: profiles.filter(([n]) => !only || n === only) });
 // Colonna sonora: primo gesto, menu, calma e battaglia, nebbia, comandi salvati, «Suono» spento (tests/e2e/musica.mjs).
-await runMusicChecks({ browser, url, check, profiles: profiles.filter(([n]) => !only || n === only) });
+await runMusicChecks({ browser, url, check, todo, profiles: profiles.filter(([n]) => !only || n === only) });
+// Colonna sonora della campagna: profilo per missione, fase 2 di «Contrattacco», schermaglia e menu invariati, «Valle
+// liberata», nessuna nota appesa, musica spenta, profili validi, album in dist/ost (tests/e2e/ost.mjs).
+await runOstChecks({ browser, url, check, profiles: profiles.filter(([n]) => !only || n === only) });
 // Disposizione B per telefono con tocchi veri (851×393, 740×360, Pixel 7) e computer invariato: piano 05 (tests/e2e/layoutb.mjs).
 await runLayoutBChecks({ browser, url, check, todo, only });
 await browser.close();

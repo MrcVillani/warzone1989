@@ -6,6 +6,8 @@
 //   MEZZI=200 SECONDI=8   mezzi in campo (metà per lato) e durata della misura
 //   CPU=4                 CPU 4 volte più lenta (telefono di fascia media)
 //   PROFILI=telefono,telefono-orizzontale   solo questi profili;  RIDUCI=0  salta la prova con «riduci movimento»
+//   MUSICA=comando-direttorio   la stessa battaglia con la musica di una missione (id della missione, piano 06):
+//                               si imposta solo S.mission, che il client legge per il profilo musicale
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
@@ -16,6 +18,7 @@ const url = pathToFileURL(path.join(root, 'dist/index.html')).href;
 const N = +process.env.MEZZI || 200, SECS = +process.env.SECONDI || 8;
 // CPU=4 rallenta la CPU di 4 volte (come un telefono di fascia media), tramite il protocollo di Chromium.
 const CPU = +process.env.CPU || 1;
+const MUSIC = process.env.MUSICA || null;
 
 const landscape = { ...devices['Pixel 7'], viewport: { width: 851, height: 393 }, screen: { width: 851, height: 393 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 };
 const profiles = [
@@ -56,6 +59,10 @@ for (const [name, opts] of profiles.filter(([n]) => !only || only.includes(n))) 
       W.ui.paused = false;
       return { units: E.S.ents.filter(e => e.kind === 'unit' && !e.dead).length, z: W.cam.z, q0: W.fxq().level };
     }, [N, WS, CS, PS]);
+    // Musica della missione richiesta (o quella della schermaglia): profilo attivo entro mezzo secondo.
+    await page.evaluate(id => { window.__wz.engine.S.mission = id; }, MUSIC);
+    await page.waitForFunction(id => window.__wz.music().profile === id, MUSIC, { timeout: 3000 }).catch(() => {});
+    const mu0 = await page.evaluate(() => window.__wz.music());
     // Conteggio dei fotogrammi con requestAnimationFrame, per secondo, e il fotogramma più lungo.
     const r = await page.evaluate(secs => new Promise(res => {
       const W = window.__wz, t0 = performance.now(), per = [], dts = [];
@@ -74,11 +81,12 @@ for (const [name, opts] of profiles.filter(([n]) => !only || only.includes(n))) 
       };
       requestAnimationFrame(f);
     }), SECS);
+    const mu = await page.evaluate(() => window.__wz.music());
     const avg = r.fps.reduce((a, b) => a + b, 0) / r.fps.length;
     console.log(`${CPU > 1 ? `CPU÷${CPU} ` : ''}${name.padEnd(21)} ${rm === 'reduce' ? 'riduci movimento' : 'normale         '}  mezzi ${setup.units} → ${r.alive}  ` +
       `fps medi ${avg.toFixed(1)} (min ${Math.min(...r.fps).toFixed(1)}, max ${Math.max(...r.fps).toFixed(1)})  ` +
       `fotogramma p95 ${r.p95.toFixed(1)} ms, peggiore ${r.max.toFixed(1)} ms  particelle max ${r.maxParts}  ` +
-      `qualità ${r.path.join(' → ')} (alta ${r.inLevel.alta.toFixed(1)} s, media ${r.inLevel.media.toFixed(1)} s, bassa ${r.inLevel.bassa.toFixed(1)} s; media fotogramma ${r.q.avg} ms)${errors.length ? '  ERRORI: ' + errors.join(' | ') : ''}`);
+      `qualità ${r.path.join(' → ')} (alta ${r.inLevel.alta.toFixed(1)} s, media ${r.inLevel.media.toFixed(1)} s, bassa ${r.inLevel.bassa.toFixed(1)} s; media fotogramma ${r.q.avg} ms)  musica ${mu.profile ?? 'di base'} (${mu.key}, ${mu.bpm}), ${mu.state}, note ${(mu.played || 0) - (mu0.played || 0)}, scartate ${(mu.dropped || 0) - (mu0.dropped || 0)}${errors.length ? '  ERRORI: ' + errors.join(' | ') : ''}`);
     await ctx.close();
   }
 }
