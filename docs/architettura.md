@@ -91,7 +91,7 @@ proiettili in volo, che `loadState` rimette nell'array `proj`.
 | `screens.js` | menu principale (Campagna, Schermaglia), elenco missioni, briefing, indicatore dell'obiettivo, rapporti di fine missione e di schermaglia, schermata finale, conferma d'uscita |
 | `campaign.js` | salvataggio della campagna sul dispositivo (`localStorage`, chiave `wz.campagna`) |
 | `audio.js` | suoni sintetizzati con Web Audio, posizionati rispetto alla visuale, con limite di voci; volume e acceso/spento salvati sul dispositivo |
-| `music.js` | colonna sonora originale generata in tempo reale: strati calma, tensione e battaglia sullo stesso orologio e sulla stessa armonia, con dissolvenze guidate dall'intensità dei combattimenti; temi del menu, vittoria, sconfitta e cambio di fase; un profilo per ogni missione della campagna (`musicMission(id, fase)`: tonalità, tempo, variante del tema, strumenti), frase «Valle liberata» alla fine della campagna; volume e acceso/spento salvati sul dispositivo |
+| `music.js` | colonna sonora originale generata in tempo reale: strati calma, tensione e battaglia sullo stesso orologio e sulla stessa armonia, con dissolvenze guidate dall'intensità dei combattimenti; temi del menu, vittoria, sconfitta e cambio di fase; un profilo per ogni missione della campagna (`musicMission(id, fase)`: tonalità, tempo, variante del tema, strumenti), frase «Valle liberata» alla fine della campagna; scala di epicità 1–8 per missione (`epic`, strati che si sommano gradino per gradino), motivo della Brigata (`BRIGATA`) che si completa lungo la campagna e culmine a orchestra piena dal gradino 6 negli scontri più intensi, entro un limite di voci (`MUSIC_LIMITS`); volume e acceso/spento salvati sul dispositivo |
 | `anim.js` | animazioni del client: assetto e rinculo dei mezzi, porte delle fabbriche, cantiere con gru, palla di fuoco, macerie degli edifici; rispetta qualità adattiva e «riduci movimento» |
 | `alerts.js` | posizione degli avvisi toccabili, pulsante «Allarme» (ultimi scontri), frecce ai bordi per gli scontri fuori visuale |
 | `quality.js` | qualità adattiva degli effetti (alta, media, bassa): misura il tempo per fotogramma e regola particelle, tracce e risoluzione della tela; scelta «Effetti» salvata sul dispositivo |
@@ -120,7 +120,7 @@ bilanciamento in [`bilanciamento.md`](bilanciamento.md).
 
 `npm run ost` registra con lo stesso motore musicale (`client/music.js` su `OfflineAudioContext`) l'album
 «Operazione Valle Grigia» in `dist/ost/`: 11 tracce MP3 a 192 kbps (tema del menu, una traccia per missione,
-«Valle liberata», «Brigata sconfitta») con tag ID3 e `scaletta.txt`. `npm run ost -- 3 8` rigenera solo alcune
+«Valle liberata», «Brigata sconfitta») con tag ID3 e `scaletta.txt`, che riporta il gradino di epicità di ogni brano. `npm run ost -- 3 8` rigenera solo alcune
 tracce. La cartella è generata e non sta nel repository.
 
 ## Android

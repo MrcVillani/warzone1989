@@ -10,12 +10,20 @@
 // Profili per missione (piano 06): ogni missione della campagna ha tonalità e modo, tempo, variante del tema,
 // strumenti in primo piano e carattere della battaglia propri, ricavati dalla stessa materia; la schermaglia e il
 // menu usano il materiale di base qui sotto, invariato.
+// Scala di epicità (piano 07): ogni profilo ha un gradino da 1 a 8 (musicProfile(id).epic) e l'orchestra cresce con
+// lui (strati in .layers e .strata, gradino per gradino in EPIC); il motivo della Brigata (BRIGATA, .motif) nasce in
+// frammenti, è completo dal gradino 6 e in «Contrattacco» fase 2 diventa il tema trionfale; dal gradino 6, quando lo
+// scontro è durissimo, entra il culmine (musicState().climax). Più strati, stesso livello: il guadagno d'insieme del
+// gradino (TRIM) tiene la battaglia entro circa 3 dB dal primo all'ultimo. Timbri nuovi (trombe, tromboni e tuba, coro
+// su vocali, tamburi grandi, archi staccati e in legato) con i filtri sui bus e un vibrato condiviso.
 // createMusic non dipende dal motore né dal DOM: lavora su qualunque contesto, anche OfflineAudioContext per le
 // anteprime e per l'album (scripts/ost.mjs). In fondo il controllo dal vivo: impostazioni salvate, timer di
 // pianificazione, pagina nascosta.
 
 const BPM = 72, BEAT0 = 60 / BPM, STEP0 = BEAT0 / 4;
-const LOOKAHEAD = 0.2, TICK_MS = 50, MAX_NOTES = 44, HOLD = 3;
+// MAX_NOTES: voci oltre le quali si scartano le note di contorno; MAX_VOICES: tetto per tutte, anche le principali.
+const LOOKAHEAD = 0.2, TICK_MS = 50, MAX_NOTES = 48, MAX_VOICES = 56, HOLD = 3;
+export const MUSIC_LIMITS = { voices: MAX_VOICES, soft: MAX_NOTES };
 const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
 
 /* ---------- materiale musicale (composto per questo gioco) ---------- */
@@ -65,6 +73,7 @@ const FIN_BARS = 28;                                            // battute di «
 const DEFAULT_PROFILE = {
   id: null, base: null, key: 're minore', bpm: BPM, CH, PROG: { A: PROG.A, B: PROG.B }, MELS: { A: MELS.A, B: MELS.B, HA: MELS.HA, HB: MELS.HB },
   lead: { A: 'horn', B: 'horn' }, second: {}, cfg: {}, tonicBass: 38,
+  epic: 0, strata: { calma: [], battaglia: [], culmine: [] }, layers: [], motif: null, reedEcho: null, trim: 1, hall: 1,
 };
 
 /* ---------- profili per missione (piano 06) ----------
@@ -166,93 +175,148 @@ const PA = ['1', '6', '3', '7', '1', '4', '6', ['5s', '5M']];            // giro
 const PB = ['6', '7', '1', '4M', '6', '3', '4', ['5s', '5M']];           // giro B
 const PA_MAJ = ['1', '6', '3', 'b7', '1', '4', '6', ['5s', '5M']];       // nei modi maggiori: settimo grado abbassato
 const PB_MAJ = ['6', '5', '1', '4M', '6', '3', '4', ['5s', '5M']];
+
+/* ---------- scala di epicità (piano 07) ----------
+   Otto gradini, uno per missione: ogni gradino suona tutto quello del gradino prima e aggiunge strati, nella calma e
+   nella battaglia; dal sesto c'è anche il culmine (uno strato di tutta l'orchestra quando lo scontro è durissimo).
+   Più strati non vuol dire più forte: il livello d'insieme di ogni gradino si riporta a quello del primo (TRIM). */
+const EPIC = [
+  { calma: [], battaglia: [], culmine: [] },
+  { calma: ['archi', 'contrabbassi', 'legno', 'corno', 'arpa', 'timpani'],
+    battaglia: ['ostinato-archi', 'tamburi', 'rullante', 'colpi-ottoni', 'ottoni-tema', 'timpani', 'piatti'] },
+  { calma: ['timpani-ostinato', 'archi-gravi-ostinato', 'motivo'], battaglia: ['timpani-ostinato', 'archi-gravi-ostinato', 'motivo'] },
+  { calma: ['corni-due-voci', 'tamburi-guerra', 'rullante-militare'], battaglia: ['corni-due-voci', 'tamburi-guerra', 'rullante-militare'] },
+  { calma: ['coro-lontano', 'trombe'], battaglia: ['coro-lontano', 'trombe', 'piatti-crescendo'] },
+  { calma: ['coro-pieno', 'tromboni-tuba', 'archi-ottava', 'sala-ampia'], battaglia: ['coro-pieno', 'tromboni-tuba', 'archi-ottava', 'sala-ampia'] },
+  { calma: ['tamburi-grandi', 'motivo-completo'], battaglia: ['tamburi-grandi', 'contrappunto-ottoni', 'motivo-completo'],
+    culmine: ['culmine-ottoni', 'culmine-coro', 'culmine-tamburi', 'culmine-motivo'] },
+  { calma: ['archi-staccati', 'campane'], battaglia: ['archi-staccati', 'campane'], culmine: ['culmine-trombe', 'culmine-archi'] },
+  { calma: ['coro-tema', 'ottoni-ottava'], battaglia: ['coro-tema', 'ottoni-ottava'], culmine: ['culmine-ottava'] },
+];
+// Strati di un gradino: quelli di tutti i gradini fino a lui, in ordine.
+function strata(ep) {
+  const o = { calma: [], battaglia: [], culmine: [] };
+  for (let k = 1; k <= ep; k++) for (const x of ['calma', 'battaglia', 'culmine']) o[x].push(...(EPIC[k][x] || []));
+  return o;
+}
+// Guadagno d'insieme per gradino (misurato sulle battaglie): la battaglia resta entro circa 3 dB dal gradino 1 all'8.
+const TRIM = [1, 1, 0.87, 0.79, 0.84, 0.68, 0.57, 0.61, 0.57];
+// Motivo della Brigata (composto per il gioco): quattro note, 1 – 4 – 3 – 5 della tonalità, «lungo, breve, pieno,
+// aperto» in una battuta di tonica. Scritto in re minore come il tema; nei frammenti l'ultima nota si allunga.
+export const BRIGATA = [[62, 1.5], [67, 0.5], [65, 1], [69, 1]];
+const MOTIF_AT = { 0: 0, 6: 1, 8: 2, 12: 3 };   // sedicesimo d'attacco nella battuta → nota del motivo
+// Tema trionfale («Contrattacco», fase 2): il motivo, le sue sequenze (dalla terza, all'ottava) e una discesa che
+// riapre sulla dominante; 32 battiti sul giro A in maggiore.
+const TRI = [[62, 1.5], [67, 0.5], [65, 1], [69, 1], [74, 2], [70, 1], [69, 1], [65, 1.5], [70, 0.5], [69, 1], [72, 1], [76, 2], [72, 1], [67, 1],
+  [74, 1.5], [79, 0.5], [77, 1], [81, 1], [74, 2], [70, 1], [67, 1], [70, 1.5], [69, 0.5], [65, 2], [69, 2], [72, 2]];
 // Profili: key (descrizione), tonica (MIDI, nell'ottava del tema), modo, tempo, giri, varianti del tema (A e B),
-// strumento e ottava della melodia, seconda voce, colore della calma (cfg) e carattere della battaglia (cfg.bat).
+// strumento e ottava della melodia, seconda voce, colore della calma (cfg) e carattere della battaglia (cfg.bat);
+// epic: gradino della scala di epicità (piano 07), che decide quali strati dell'orchestra suonano (EPIC, qui sopra);
+// trim: guadagno d'insieme, se diverso da quello del gradino (la frase finale non ha battaglia da pareggiare).
+// reed: [frase, ottava] dove il legno raddoppia la melodia, per i profili in cui i due temi sono dei corni.
 const SPECS = {
   'testa-di-ponte': {
-    key: 'si minore', tonic: 59, mode: 'aeolian', bpm: 64, prog: { A: PA, B: PB },
+    epic: 1, key: 'si minore', tonic: 59, mode: 'aeolian', bpm: 64, prog: { A: PA, B: PB },
     mel: { A: breathe(MEL.A), B: breathe(MEL.B) }, lead: { A: ['reed', 0], B: ['horn', -12] },
     cfg: { bright: 0.6, padLvl: 0.9, harp: 'sparse', choir: 'none',
       bat: { ost: 'night', drum: 'night', hi: false, snare: 'light', stabs: 'few', lead: -12, leadVel: 0.8 } },
   },
   'pozzi-del-guado': {
-    key: 'mi frigio', tonic: 64, mode: 'phrygian', bpm: 70, prog: { A: ['1', '6', '3', '2', '1', '4', '6', ['5s', '5M']], B: PB },
+    epic: 2, key: 'mi frigio', tonic: 64, mode: 'phrygian', bpm: 70, prog: { A: ['1', '6', '3', '2', '1', '4', '6', ['5s', '5M']], B: PB },
     mel: { A: pulse(MEL.A), B: MEL.B }, lead: { A: ['horn', -12], B: ['reed', 0] },
-    cfg: { bright: 0.75, harp: 'sparse', timp: 'pedal',
+    cfg: { bright: 0.75, harp: 'sparse', timp: 'pedal', choir: 'none',
       bat: { ost: 'w332', drum: 'w332', snare: 'half', lead: -12 } },
   },
   'colonna-rifornimenti': {
-    key: 'sol minore', tonic: 55, mode: 'aeolian', bpm: 96, prog: { A: PA, B: PB },
-    mel: { A: march(MEL.A), B: march(MEL.B) }, lead: { A: ['reed', 12], B: ['horn', 0] },
+    epic: 3, key: 'sol minore', tonic: 55, mode: 'aeolian', bpm: 96, prog: { A: PA, B: PB },
+    mel: { A: march(MEL.A), B: march(MEL.B) }, lead: { A: ['reed', 12], B: ['horn', 0] }, second: { B: ['horn2', 'below'] },
     cfg: { bright: 0.9, pulse: true, choir: 'none', timp: 'roll',
       bat: { ost: 'drive', drum: 'drive', snare: 'march', lead: 0 } },
   },
   'passo-dei-larici': {
-    key: 'mi bemolle maggiore', tonic: 63, mode: 'ionian', bpm: 60, prog: { A: PA_MAJ, B: PB_MAJ },
+    epic: 4, key: 'mi bemolle maggiore', tonic: 63, mode: 'ionian', bpm: 60, prog: { A: PA_MAJ, B: PB_MAJ },
     mel: { A: broad(MEL.A), B: broad(MEL.B) }, lead: { A: ['horn', 0], B: ['horn', 0] }, second: { A: ['horn2', 'below'], B: ['horn2', 'below'] },
-    cfg: { bright: 0.85, harp: 'none', choir: 'full', bell: true, timp: 'roll',
-      bat: { ost: 'heavy', drum: 'heavy', snare: 'half', timp: 'every', lead: 0, choir: true } },
+    reed: ['B', 12],
+    cfg: { bright: 0.85, harp: 'sparse', choir: 'far', vowel: 'o', bell: true, timp: 'roll',
+      bat: { ost: 'heavy', drum: 'heavy', snare: 'half', timp: 'every', lead: 0 } },
   },
   'diga-serra-alta': {
-    key: 'do lidio', tonic: 60, mode: 'lydian', bpm: 68,
+    epic: 5, key: 'do lidio', tonic: 60, mode: 'lydian', bpm: 68,
     prog: { A: ['1', '6', '3', '7', '1', '2M', '6', ['5s', '5M']], B: ['6', '7', '1', '2M', '6', '3', '2M', ['5s', '5M']] },
-    mel: { A: MEL.A, B: MEL.B }, lead: { A: ['reed', 12], B: ['horn', 0] },
-    cfg: { bright: 1.1, harp: 'ripple',
+    mel: { A: MEL.A, B: MEL.B }, lead: { A: ['reed', 12], B: ['horn', 0] }, second: { B: ['horn2', 'below'] },
+    cfg: { bright: 1.1, harp: 'ripple', choir: 'full', vowel: 'a',
       bat: { ost: 'wave', stabs: 'few', crash4: true, lead: 0 } },
   },
   'due-fuochi': {
-    key: 'fa diesis minore', tonic: 66, mode: 'aeolian', bpm: 84, prog: { A: PA, B: PB },
+    epic: 6, key: 'fa diesis minore', tonic: 66, mode: 'aeolian', bpm: 84, prog: { A: PA, B: PB },
     mel: { A: MEL.A, B: MEL.B }, lead: { A: ['reed', 0], B: ['horn', -12] }, second: { A: ['horn2', 'under'], B: ['reed2', 'over'] },
-    cfg: { bright: 0.95,
+    cfg: { bright: 0.95, choir: 'full', vowel: 'o',
       bat: { lead: 0, counter: true } },
   },
   'contrattacco': {
-    key: 'la minore', tonic: 57, mode: 'aeolian', bpm: 80, prog: { A: PA, B: PB },
+    epic: 7, key: 'la minore', tonic: 57, mode: 'aeolian', bpm: 80, prog: { A: PA, B: PB },
     mel: { A: broad(MEL.A), B: breathe(MEL.B) }, lead: { A: ['horn', 0], B: ['horn', 0] }, second: { B: ['horn2', 'below'] },
-    cfg: { bright: 0.55, harp: 'none', choir: 'none', timp: 'pedal',
+    reed: ['B', 0],
+    cfg: { bright: 0.55, harp: 'sparse', choir: 'full', vowel: 'u', timp: 'pedal',
       bat: { drum: 'heavy', snare: 'half', stabs: 'few', lead: 0, leadVel: 0.85 } },
   },
-  // seconda parte di «Contrattacco» (obiettivo alla fase 2): stessa tonica e stesso tempo, in maggiore e trionfale
+  // seconda parte di «Contrattacco» (obiettivo alla fase 2): stessa tonica e stesso tempo, in maggiore e trionfale;
+  // il motivo della Brigata diventa il tema (frase A, ai corni nella calma e agli ottoni in battaglia)
   'contrattacco/2': {
-    key: 'la maggiore', tonic: 57, mode: 'ionian', bpm: 80, prog: { A: PA_MAJ, B: PB_MAJ },
-    mel: { A: MEL.A, B: MEL.B }, lead: { A: ['horn', 0], B: ['horn', 0] }, second: { A: ['horn2', 'below'], B: ['horn2', 'below'] },
-    cfg: { bright: 1.15, choir: 'full', timp: 'roll',
-      bat: { drum: 'epic', timp: 'every', crash4: true, lead: 0, choir: true } },
+    epic: 7, triumph: true, key: 'la maggiore', tonic: 57, mode: 'ionian', bpm: 80, prog: { A: PA_MAJ, B: PB_MAJ },
+    mel: { A: broad(TRI), B: MEL.B }, hero: { A: TRI }, lead: { A: ['horn', 0], B: ['horn', 0] }, second: { A: ['horn2', 'below'], B: ['horn2', 'below'] },
+    reed: ['B', 12],
+    cfg: { bright: 1.15, choir: 'full', vowel: 'a', timp: 'roll',
+      bat: { drum: 'epic', timp: 'every', crash4: true, lead: 0 } },
   },
   'comando-direttorio': {
-    key: 're minore', tonic: 62, mode: 'aeolian', bpm: 88, prog: { A: PA, B: PB },
+    epic: 8, key: 're minore', tonic: 62, mode: 'aeolian', bpm: 88, prog: { A: PA, B: PB },
     mel: { A: heroic(MEL.A), B: heroic(MEL.B) }, lead: { A: ['horn', 0], B: ['horn', 0] }, second: { A: ['horn2', 'below'] },
-    cfg: { bright: 1.05, choir: 'full', timp: 'roll',
-      bat: { drum: 'epic', stabs: 'many', timp: 'every', crash4: true, lead: 0, low: true, choir: true } },
+    reed: ['B', 12],
+    cfg: { bright: 1.05, choir: 'full', vowel: 'a', timp: 'roll',
+      bat: { drum: 'epic', stabs: 'many', timp: 'every', crash4: true, lead: 0, low: true } },
   },
-  // fine della campagna (non è una missione): la frase «Valle liberata» usa questo profilo
+  // fine della campagna (non è una missione): la frase «Valle liberata» usa questo profilo, a orchestra piena
   'valle-liberata': {
-    key: 're maggiore', tonic: 62, mode: 'ionian', bpm: 80, prog: { A: PA_MAJ, B: PB_MAJ },
+    epic: 8, trim: 0.74, key: 're maggiore', tonic: 62, mode: 'ionian', bpm: 80, prog: { A: PA_MAJ, B: PB_MAJ },
     mel: { A: MEL.A, B: MEL.B }, lead: { A: ['reed', 0], B: ['horn', 0] }, second: { B: ['horn2', 'below'] }, extra: ['b6'],
-    cfg: { bright: 1.1 },
+    cfg: { bright: 1.1, vowel: 'a' },
   },
 };
 function compile(id) {
-  const sp = SPECS[id], K = { tonic: sp.tonic, scale: MODES[sp.mode] }, CHP = {};
+  const sp = SPECS[id], K = { tonic: sp.tonic, scale: MODES[sp.mode] }, CHP = {}, ep = sp.epic || 0, bat = sp.cfg.bat || {};
   for (const c of [...sp.prog.A, ...sp.prog.B, ...(sp.extra || [])].flatMap(halves)) if (!CHP[c]) {
     const x = chordSpec(c, K); let b = 33; while (b % 12 !== x.root) b++;
     CHP[c] = { pad: voicing(x.pcs), bass: b, pcs: x.pcs, dim: x.dim };
   }
-  const MS = {}, raw = {};
+  const MS = {}, raw = {}, counter = bat.counter || ep >= 6, low = bat.low || ep >= 8;
   for (const kind of ['A', 'B']) {
     const prog = sp.prog[kind], [inst, oc] = sp.lead[kind];
     const mel = fit(sp.mel[kind].map(([m, d]) => [m == null ? null : inKey(m, K) + oc, d]), prog, CHP);
-    const hero = fit(heroic(MEL[kind]).map(([m, d]) => [inKey(m, K) + (sp.cfg.bat?.lead ?? 0), d]), prog, CHP);
+    const hero = fit(heroic((sp.hero && sp.hero[kind]) || MEL[kind]).map(([m, d]) => [inKey(m, K) + (bat.lead ?? 0), d]), prog, CHP);
     raw[kind] = mel; raw['H' + kind] = hero;
     MS[kind] = byStep(mel); MS['H' + kind] = byStep(hero);
     const s2 = sp.second && sp.second[kind];
     if (s2) { const v = voice2(mel, prog, CHP, s2[1]); raw['S' + kind] = v; MS['S' + kind] = byStep(v); }
-    if (sp.cfg.bat?.counter) { const v = voice2(hero, prog, CHP, 'under'); raw['K' + kind] = v; MS['K' + kind] = byStep(v); }
-    if (sp.cfg.bat?.low) { const v = hero.map(([m, d]) => [m == null ? null : m - 12, d]); MS['L' + kind] = byStep(v); }
+    if (counter) { const v = voice2(hero, prog, CHP, 'under'); raw['K' + kind] = v; MS['K' + kind] = byStep(v); }
+    if (low) { const v = hero.map(([m, d]) => [m == null ? null : m - 12, d]); MS['L' + kind] = byStep(v); }
   }
+  // Motivo della Brigata nella tonalità del profilo, con la tonica tra il do e il si sotto il do centrale (corni).
+  let mr = inKey(62, K); while (mr > 59) mr -= 12; while (mr < 48) mr += 12;
+  const mo = mr - inKey(62, K), len = ep >= 6 ? 4 : ep >= 4 ? 3 : ep >= 2 ? 2 : 0;
+  const motif = len ? {
+    form: sp.triumph ? 'trionfale' : len === 4 ? 'completo' : 'frammento', length: len,
+    notes: BRIGATA.slice(0, len).map(([m]) => inKey(m, K) + mo),
+    beats: BRIGATA.slice(0, len).map(([, d], i) => i === len - 1 ? 4 - BRIGATA.slice(0, i).reduce((a, x) => a + x[1], 0) : d),
+    // battute in cui si sente (frase e battuta del giro, tutte su un accordo di tonica)
+    where: len === 4 ? { A: sp.triumph ? [] : [0, 4], B: [2] } : { A: [4], B: [] },
+  } : null;
+  const st = strata(ep);
   return {
     id, base: id.split('/')[0], key: sp.key, bpm: sp.bpm, CH: CHP, PROG: { A: sp.prog.A, B: sp.prog.B }, MELS: MS, raw,
     lead: { A: sp.lead.A[0], B: sp.lead.B[0] }, second: { A: sp.second?.A?.[0], B: sp.second?.B?.[0] }, cfg: sp.cfg, tonicBass: CHP['1'] ? CHP['1'].bass : 38,
+    epic: ep, strata: st, layers: [...new Set([...st.calma, ...st.battaglia, ...st.culmine])], motif, reedEcho: sp.reed || null,
+    trim: sp.trim ?? TRIM[ep], hall: ep >= 5 ? 1.45 : 1,
   };
 }
 const compiled = {};
@@ -308,7 +372,10 @@ export function createMusic(ctx, dest, opts = {}) {
 
   // Sezione (menu o partita): un doppio guadagno, asciutto e verso il riverbero, per sfumarla tutta insieme.
   const sec = { dry: ctx.createGain(), wet: ctx.createGain(), ramp: { t0: 0, v0: 1, t1: 0, v1: 1 } };
-  sec.dry.connect(mix); sec.wet.connect(verb);
+  // guadagno d'insieme del gradino di epicità (asciutto e mandata) e sala più ampia dal gradino 5 (piano 07);
+  // a 1 per il menu e la schermaglia
+  const trimD = ctx.createGain(), trimW = ctx.createGain(), trimV = [1, 1];
+  sec.dry.connect(trimD); trimD.connect(mix); sec.wet.connect(trimW); trimW.connect(verb);
   // Strati: livello con rampa, bus per strumento (asciutto + mandata al riverbero, panorama, filtro).
   function layer(name, inSec, v = 0) {
     const L = { name, sec: inSec, dry: ctx.createGain(), wet: ctx.createGain(), ramp: { t0: 0, v0: v, t1: 0, v1: v }, buses: {} };
@@ -316,7 +383,7 @@ export function createMusic(ctx, dest, opts = {}) {
     L.dry.connect(inSec ? sec.dry : mix); L.wet.connect(inSec ? sec.wet : verb);
     return L;
   }
-  const LY = { calm: layer('calm', true, 1), mel: layer('mel', true, 1), ten: layer('ten', true), bat: layer('bat', true), st: layer('st', false, 1) };
+  const LY = { calm: layer('calm', true, 1), mel: layer('mel', true, 1), ten: layer('ten', true), bat: layer('bat', true), cul: layer('cul', true), st: layer('st', false, 1) };
   // solo per le misure: strati da tenere muti (opts.mute = ['calm', ...])
   for (const k of opts.mute || []) { LY[k].dry.disconnect(); LY[k].wet.disconnect(); }
   function bus(L, name, o = {}) {
@@ -341,11 +408,11 @@ export function createMusic(ctx, dest, opts = {}) {
   /* ---------- mattoni di sintesi ---------- */
   const live = [];   // sorgenti della sezione in corso: si fermano quando la sezione cambia
   const notes = [];  // istanti di fine delle note, per il limite di voci
-  const stats = { notes: 0, dropped: 0 };
+  const stats = { notes: 0, dropped: 0, peak: 0 };
   function admit(t, end, prio) {
     let j = 0; for (const e of notes) if (e > t) notes[j++] = e; notes.length = j;
-    if (notes.length >= MAX_NOTES && !prio) { stats.dropped++; return false; }
-    notes.push(end); stats.notes++; return true;
+    if (notes.length >= (prio ? MAX_VOICES : MAX_NOTES)) { stats.dropped++; return false; }
+    notes.push(end); stats.notes++; if (notes.length > stats.peak) stats.peak = notes.length; return true;
   }
   function osc(L, type, f, t, end) {
     const o = ctx.createOscillator(); o.type = type; o.frequency.setValueAtTime(f, t); o.start(t); o.stop(end);
@@ -547,18 +614,131 @@ export function createMusic(ctx, dest, opts = {}) {
     else horn(L, m, t, dur, vel);
   }
 
+  /* ---------- timbri della scala di epicità (piano 07) ----------
+     Nodi riusati: i filtri stanno sui bus (uno per timbro, creati una volta sola), il vibrato è un solo oscillatore
+     lento che muove l'intonazione (in centesimi) delle note singole dei timbri nuovi; un accordo è una voce sola, e le
+     sue coppie di seghe scordate bastano a farlo vivere. Precedenza (prio) per accordi tenuti, tamburi grandi sui battere e
+     motivo: oltre MAX_NOTES voci si scartano prima i raddoppi d'ornamento. */
+  let vibG = null;
+  function vib(o, dur = 1) {
+    if (dur < 0.4) return;   // le note brevi non hanno il tempo di vibrare
+    if (!vibG) { const v = ctx.createOscillator(); v.frequency.value = 5.2; vibG = ctx.createGain(); vibG.gain.value = 8; v.connect(vibG); v.start(); }
+    vibG.connect(o.detune);
+  }
+  // A fine nota scollega i nodi intermedi e il vibrato condiviso.
+  function release(srcs, nodes) {
+    srcs[srcs.length - 1].onended = () => {
+      for (const x of nodes) { try { x.disconnect(); } catch (e) { /* già scollegato */ } }
+      if (vibG) for (const o of srcs) { try { vibG.disconnect(o.detune); } catch (e) { /* senza vibrato */ } }
+    };
+  }
+  // Squillo d'attacco degli ottoni nuovi (trombe, tromboni, corni di sezione): un bus chiaro, uno per strato.
+  const blareBus = L => bus(L, 'blare', { lp: 4500, q: 1.2, send: 0.3, pan: 0.05 });
+  // Tromba: una sega; il corpo passa dal filtro morbido del bus, lo squillo d'attacco da quello chiaro.
+  function trumpet(L, m, t, dur, vel = 1) {
+    const end = t + dur + 0.18; if (!admit(t, end, false)) return;
+    const body = env(t, 0.025, 0.1 * vel, t + dur, end), blare = perc(t, 0.11 * vel, Math.min(0.3, dur + 0.05), 0.01);
+    const a = osc(L, 'sawtooth', mtof(m), t, end); a.connect(body); a.connect(blare);
+    body.connect(bus(L, 'tpt', { lp: 2200, q: 0.8, send: 0.4, pan: 0.3 })); blare.connect(blareBus(L));
+    vib(a, dur); release([a], [body, blare]);
+  }
+  // Corno di sezione (strati nuovi): sega e triangolo; il corpo passa dal filtro scuro del bus, l'attacco che si apre
+  // da quello più chiaro.
+  // m può essere un accordo (elenco di note): una voce sola, senza vibrato.
+  function hornS(L, m, t, dur, vel = 1, prio = false) {
+    const ms = Array.isArray(m) ? m : [m], end = t + dur + 0.3; if (!admit(t, end, prio)) return;
+    const k = 1 / Math.sqrt(ms.length), body = env(t, 0.14, 0.1 * vel * k, t + dur, end), bloom = perc(t + 0.05, 0.06 * vel * k, Math.min(0.6, dur + 0.1), 0.12), srcs = [];
+    for (const x of ms) {
+      const a = osc(L, 'sawtooth', mtof(x), t, end); a.connect(body); a.connect(bloom); srcs.push(a);
+      if (ms.length === 1) { const b = osc(L, 'triangle', mtof(x) * 1.002, t, end); b.connect(body); srcs.push(b); vib(a, dur); vib(b, dur); }
+    }
+    body.connect(bus(L, 'hornS', { lp: 900, q: 0.8, send: 0.6, pan: -0.3 })); bloom.connect(bus(L, 'hornS+', { lp: 1700, q: 0.9, send: 0.5, pan: -0.3 }));
+    release(srcs, [body, bloom]);
+  }
+  // Tromboni: una sega per nota (con una quadra se la nota è sola), un inviluppo per tutto l'accordo.
+  function lowBrass(L, ms, t, dur, vel = 1, prio = false) {
+    const end = t + dur + 0.25; if (!admit(t, end, prio)) return;
+    const k = 1 / Math.sqrt(ms.length), body = env(t, 0.06, 0.1 * vel * k, t + dur, end), blare = perc(t, 0.06 * vel * k, 0.35, 0.03), srcs = [];
+    for (const m of ms) for (const ty of ms.length === 1 ? ['sawtooth', 'square'] : ['sawtooth']) {
+      const o = osc(L, ty, mtof(m) * (ty === 'square' ? 1.003 : 0.998), t, end); o.connect(body); o.connect(blare); if (ms.length === 1) vib(o, dur); srcs.push(o);
+    }
+    body.connect(bus(L, 'tbn', { lp: 950, q: 0.9, send: 0.45, pan: -0.2 })); blare.connect(blareBus(L));
+    release(srcs, [body, blare]);
+  }
+  // Tuba: sega e sinusoide sulla fondamentale, filtro del bus molto scuro.
+  function tuba(L, m, t, dur, vel = 1, prio = false) {
+    const end = t + dur + 0.2, f0 = mtof(m); if (!admit(t, end, prio)) return;
+    const g = env(t, 0.07, 0.11 * vel, t + dur, end), a = osc(L, 'sawtooth', f0, t, end), b = osc(L, 'sine', f0, t, end);
+    a.connect(g); b.connect(g); g.connect(bus(L, 'tuba', { lp: 380, q: 0.8, send: 0.2 }));
+    release([a, b], [g]);
+  }
+  // Coro su vocali: una sega per nota (due scordate se la nota è sola), un inviluppo per l'accordo; la vocale la fanno tre filtri a
+  // formante sul bus della vocale, gli stessi per tutte le note.
+  const VOWEL = { a: [[750, 1], [1150, 0.55], [2800, 0.2]], o: [[450, 1], [800, 0.5], [2800, 0.12]], u: [[330, 1], [700, 0.35], [2500, 0.08]] };
+  function voxBus(L, vw, far) {
+    const name = 'vox-' + vw + (far ? '-far' : ''); let b = L.buses[name]; if (b) return b;
+    b = ctx.createGain(); const sum = ctx.createGain();
+    for (const [f, a] of VOWEL[vw]) { const x = filt('bandpass', f, 4.5), ga = gainN(a * 2.2); b.connect(x); x.connect(ga); ga.connect(sum); }
+    sum.connect(bus(L, name + '>', far ? { send: 1, dry: 0.2, pan: 0.3, lp: 2200 } : { send: 0.9, dry: 0.5, pan: 0.15 }));
+    return (L.buses[name] = b);
+  }
+  function vox(L, ms, t, dur, lvl = 1, vw = 'a', far = false, prio = false) {
+    const end = t + dur + 0.5; if (!admit(t, end, prio)) return;
+    const g = env(t, Math.min(0.5, dur * 0.3), 0.3 * lvl / Math.sqrt(ms.length), t + dur, end), srcs = [];
+    for (const m of ms) for (const k of ms.length === 1 ? [0.996, 1.004] : [1 + (rnd() - 0.5) * 0.008]) { const o = osc(L, 'sawtooth', mtof(m) * k, t, end); o.connect(g); if (ms.length === 1) vib(o, dur); srcs.push(o); }
+    g.connect(voxBus(L, vw, far)); release(srcs, [g]);
+  }
+  // Tamburi grandi d'insieme: uno o due tamburi di altezze diverse a pochi millesimi l'uno dall'altro (una voce);
+  // la pelle è un colpo di rumore filtrato dal bus.
+  function taiko(L, t, vel, nd = 1, prio = false) {
+    const dec = 0.75, end = t + dec + 0.06; if (!admit(t, end, prio)) return;
+    const srcs = [], nodes = [];
+    for (let i = 0; i < nd; i++) {
+      const ti = t + i * 0.011, f = [58, 66, 51][i], g = perc(ti, 0.3 * vel, dec - i * 0.12, 0.004);
+      const a = osc(L, 'sine', f * 1.7, ti, end); a.frequency.exponentialRampToValueAtTime(f, ti + 0.08);
+      a.connect(g); g.connect(bus(L, 'taiko', { lp: 700, send: 0.4 })); srcs.push(a); nodes.push(g);
+    }
+    const ns = noiseSrc(L, t, t + 0.12), ng = perc(t, 0.2 * vel * Math.sqrt(nd), 0.09, 0.002);
+    ns.connect(ng); ng.connect(bus(L, 'taiko+', { lp: 1400, q: 0.8, send: 0.35 })); nodes.push(ng);
+    release(srcs, nodes);
+  }
+  // Archi staccati: una sega brevissima con inviluppo secco.
+  function spic(L, m, t, vel) {
+    const len = STEP * 0.6, end = t + len + 0.03; if (!admit(t, end, false)) return;
+    const g = perc(t, 0.2 * vel, len, 0.004), a = osc(L, 'sawtooth', mtof(m) * (1 + (rnd() - 0.5) * 0.004), t, end);
+    a.connect(g); g.connect(bus(L, 'spic', { lp: 3600, q: 0.7, send: 0.35, pan: -0.35 }));
+    release([a], [g]);
+  }
+  // Violini in legato (archi all'ottava): due seghe scordate (una per nota negli accordi), attacco morbido; una voce.
+  function strings(L, ms, t, dur, vel = 1, prio = false) {
+    const end = t + dur + 0.4; if (!admit(t, end, prio)) return;
+    const g = env(t, 0.09, 0.07 * vel / Math.sqrt(ms.length), t + dur, end), srcs = [];
+    for (const m of ms) for (const k of ms.length === 1 ? [0.997, 1.003] : [1]) { const o = osc(L, 'sawtooth', mtof(m) * k, t, end); o.connect(g); if (ms.length === 1) vib(o, dur); srcs.push(o); }
+    g.connect(bus(L, 'vln', { lp: 3000, q: 0.5, send: 0.55, pan: 0.3 })); release(srcs, [g]);
+  }
+  const top = (m, lo) => { while (m < lo) m += 12; while (m >= lo + 12) m -= 12; return m; };   // nota nell'ottava da lo
+
   /* ---------- orologio, sezioni e strati ---------- */
   let mode = 'off', secStart = null, n = 0, lastNow = 0, finEnd = 0, stingEnd = 0, finDone = false;
   let raw = 0, sm = 0, lastHit = -1e9, lastUp = 0, state = 'calm', lastDuck = -1e9;
+  let climax = false, batSince = 0, culSince = 0;   // culmine (dal gradino 6): attivo, da quando battaglia e culmine
   // Profilo della sezione in corso e profilo chiesto per la prossima partita; pend: fase nuova, al prossimo giro.
   let prof = DEFAULT_PROFILE, wantProf = DEFAULT_PROFILE, pend = null;
   let BEAT = BEAT0, STEP = STEP0, BAR = BEAT0 * 4;
   const timeline = [];   // cambi di stato (per le anteprime e i test)
-  function useProfile(p) { prof = p; BEAT = 60 / p.bpm; STEP = BEAT / 4; BAR = BEAT * 4; }
+  // Profilo in uso dall'istante t: tempo, guadagno del gradino e sala (subito a inizio sezione, in 1 s a metà).
+  function useProfile(p, t, dur = 0) {
+    prof = p; BEAT = 60 / p.bpm; STEP = BEAT / 4; BAR = BEAT * 4;
+    [[trimD.gain, p.trim], [trimW.gain, p.trim * p.hall]].forEach(([g, v], k) => {
+      if (v === trimV[k]) return;
+      holdAt(g, t); g.setValueAtTime(trimV[k], t); if (dur) g.linearRampToValueAtTime(v, t + dur); else g.setValueAtTime(v, t);
+      trimV[k] = v;
+    });
+  }
 
   function resetLayers(t) {
-    setLevel(LY.calm, 1, t, 0.01); setLevel(LY.mel, 1, t, 0.01); setLevel(LY.ten, 0, t, 0.01); setLevel(LY.bat, 0, t, 0.01);
-    raw = 0; sm = 0; lastHit = -1e9; state = 'calm';
+    setLevel(LY.calm, 1, t, 0.01); setLevel(LY.mel, 1, t, 0.01); setLevel(LY.ten, 0, t, 0.01); setLevel(LY.bat, 0, t, 0.01); setLevel(LY.cul, 0, t, 0.01);
+    raw = 0; sm = 0; lastHit = -1e9; state = 'calm'; climax = false;
   }
   // Ferma la sezione in corso: sfuma in mezzo secondo e interrompe le sue note (il riverbero si spegne da solo).
   function cut(t) {
@@ -568,14 +748,14 @@ export function createMusic(ctx, dest, opts = {}) {
   }
   const isSec = m => m === 'menu' || m === 'game' || m === 'finale';
   function startSec(p, ts) {
-    useProfile(p); setLevel(sec, 1, ts, 0.01); resetLayers(ts);
+    useProfile(p, ts); setLevel(sec, 1, ts, 0.01); resetLayers(ts);
     secStart = ts; n = 0;
   }
   function setMode(m, t) {
     if (m === mode) return;
     const was = isSec(mode);
     if (was) cut(t);
-    mode = m; pend = null; finDone = false; timeline.push({ t, mode: m });
+    mode = m; pend = null; finDone = false; climax = false; timeline.push({ t, mode: m });
     if (isSec(m)) {
       let ts = t + (was ? 0.55 : 0.05);
       if (m === 'finale') ts = Math.max(ts, stingEnd - 1.5);   // dopo la frase di vittoria, se suona ancora
@@ -601,8 +781,21 @@ export function createMusic(ctx, dest, opts = {}) {
   }
   // Segnale di combattimento: w è il peso (0–1) già scalato per vicinanza e coinvolgimento del giocatore.
   function hit(w, t) { if (mode !== 'game') return; raw = Math.min(1.3, raw + w); lastHit = t; }
+  // Culmine: tutta l'orchestra entra con una dissolvenza, come la battaglia, ed esce allo stesso modo.
+  function climaxOn(t) {
+    climax = true; culSince = t; timeline.push({ t, climax: true, intensity: +sm.toFixed(2) });
+    setLevel(LY.cul, 1, t, 2.5);
+    const k = Math.ceil((t + 1.5 - secStart) / BEAT), tb = secStart + k * BEAT;
+    swell(LY.st, t + 0.05, tb, 0.9); crash(LY.st, tb, 0.9);
+  }
+  function climaxOff(t, toBattle) {
+    climax = false; timeline.push({ t, climax: false, intensity: +sm.toFixed(2) });
+    setLevel(LY.cul, 0, t, toBattle ? 4 : 3);
+  }
   function enter(next, t) {
     const from = state; state = next; timeline.push({ t, state: next, intensity: +sm.toFixed(2) });
+    if (next === 'battle') batSince = t;
+    else if (climax) climaxOff(t, false);
     if (next === 'battle') {
       setLevel(LY.bat, 1, t, 2); setLevel(LY.mel, 0, t, 1.5); setLevel(LY.calm, 0.5, t, 2); setLevel(LY.ten, 0.5, t, 2);
       // piatto in crescendo fino al primo battito utile, poi il colpo
@@ -616,13 +809,22 @@ export function createMusic(ctx, dest, opts = {}) {
     }
   }
   // Solo per l'album (opts.manual): porta la partita nello stato voluto, senza segnali di combattimento.
+  // 'climax' porta il culmine (dal gradino 6), 'battle' durante il culmine lo chiude e resta in battaglia.
   function force(next, t) {
-    if (mode !== 'game' || next === state) return;
+    if (mode !== 'game') return;
+    if (next === 'climax') {
+      if ((prof.epic || 0) < 6 || climax) return;
+      if (state !== 'battle') { raw = sm = 0.8; enter('battle', t); }
+      raw = sm = 1.1; climaxOn(t); return;
+    }
+    if (next === 'battle' && climax) { raw = sm = 0.8; climaxOff(t, true); return; }
+    if (next === state) return;
     raw = sm = next === 'battle' ? 0.8 : next === 'tension' ? 0.3 : 0;
     enter(next, t);
   }
   // Intensità: integratore che perde (pochi segnali radi non bastano), cala piano finché arrivano segnali e in fretta
   // HOLD secondi dopo l'ultimo; levigata in ~0,35 s; soglie con isteresi (tensione 0,15/0,1, battaglia 0,45/0,25).
+  // Culmine (dal gradino 6): oltre 0,9 dopo almeno 4 s di battaglia; finisce sotto 0,6, dopo almeno 6 s.
   function update(t) {
     const dt = Math.max(0, t - lastUp); lastUp = t;
     let j = 0; for (const e of live) if (e.end > t) live[j++] = e; live.length = j;
@@ -634,6 +836,10 @@ export function createMusic(ctx, dest, opts = {}) {
     else if (state === 'tension') { if (sm > 0.45) next = 'battle'; else if (sm < 0.1) next = 'calm'; }
     else if (sm < 0.25) next = sm < 0.1 ? 'calm' : 'tension';
     if (next !== state && t >= secStart) enter(next, t);
+    if ((prof.epic || 0) >= 6 && state === 'battle' && t >= secStart) {
+      if (!climax && sm > 0.9 && t - batSince > 4) climaxOn(t);
+      else if (climax && sm < 0.6 && t - culSince > 6) climaxOff(t, true);
+    }
   }
   // Pianifica i sedicesimi che cadono prima di until. Se l'orologio è rimasto indietro, salta avanti; se la sezione
   // non ha ancora suonato nulla (thread principale occupato appena dopo l'avvio), la fa partire da capo poco dopo.
@@ -646,7 +852,7 @@ export function createMusic(ctx, dest, opts = {}) {
       else n = Math.ceil((now - secStart) / STEP);
     }
     for (let tn = secStart + n * STEP; tn < until; tn = secStart + n * STEP) {
-      if (pend && (n & 127) === 0) { useProfile(pend); pend = null; }
+      if (pend && (n & 127) === 0) { useProfile(pend, tn, 1); pend = null; }
       const j = (rnd() - 0.5) * 0.008;   // un filo d'imprecisione umana
       if (mode === 'game') stepGame(n, tn, j); else if (mode === 'menu') stepMenu(n, tn, j); else stepFinale(n, tn, j);
       n++;
@@ -661,13 +867,17 @@ export function createMusic(ctx, dest, opts = {}) {
     const C = LY.calm, M = LY.mel, T = LY.ten, B = LY.bat;
     // variazioni a ogni giro: tema, tema all'ottava bassa, pausa del corno (coro e arpa in primo piano)
     const v = cyc % 3, hornT = kind === 'A' ? [0, null, -12][v] : v === 2 ? null : 0;
+    // thin: dal gradino 5 in battaglia il coro della calma lascia il posto a quello pieno, dal 6 anche l'arpa tace
+    const thin = (P.epic || 0) >= 5 && state === 'battle', thin6 = thin && P.epic >= 6;
     if (audible(C, t)) {
       if (s === 0 || (s === 8 && split)) {
         const d = split ? BEAT * 2 : BAR, cm = c.choir || 'some';
-        pad(C, K, t, d, c.bright ?? 1, c.padLvl ?? 1); bass(C, K, t, d);
-        if (cm === 'full' || (cm === 'some' && (hornT == null || pb % 4 >= 2))) choir(C, K, t, d, hornT == null ? 1 : 0.8);
+        // dal gradino 6, in battaglia, il tappeto passa ai violini (filtro condiviso: costa meno, si sente uguale sotto l'orchestra)
+        if (thin6) strings(C, K.pad, t, d, 1.8, true); else pad(C, K, t, d, c.bright ?? 1, c.padLvl ?? 1);
+        bass(C, K, t, d);
+        if (!thin && (cm === 'full' || (cm === 'some' && (hornT == null || pb % 4 >= 2)))) choir(C, K, t, d, hornT == null ? 1 : 0.8);
       }
-      const hp = c.harp || 'arp', solo = pb & 1 || hornT == null;
+      const hp = thin6 ? 'none' : c.harp || 'arp', solo = pb & 1 || hornT == null;
       if (hp === 'arp') { if (s % 2 === 0 && s <= 10 && solo) harp(C, arpNote(K, s >> 1), t + j, 1 - s * 0.04); }
       else if (hp === 'sparse') { if ((s === 0 || s === 6 || s === 10) && solo) harp(C, arpNote(K, s === 0 ? 0 : s === 6 ? 2 : 4), t + j, 0.7); }
       else if (hp === 'ripple') harp(C, arpNote(K, RIP[s]), t + j * 0.5, (s % 4 === 0 ? 0.6 : 0.38) * (solo ? 1 : 0.75));
@@ -682,9 +892,10 @@ export function createMusic(ctx, dest, opts = {}) {
       const at = pb * 16 + s, e = P.MELS[kind].get(at); if (e) play(M, P.lead[kind], e.m + hornT, t, e.d * BEAT - 0.03, 1);
       const S2 = P.MELS['S' + kind], e2 = S2 && S2.get(at); if (e2) play(M, P.second[kind], e2.m + hornT, t, e2.d * BEAT - 0.03, 0.7);
     }
-    if (audible(T, t)) {
+    if (audible(T, t) && !climax) {   // nel culmine la tensione (a metà, coperta) tace
       const p = K.pad;
-      if (s % 2 === 0) tense(T, (s & 2 ? p[2] : p[3]) + 12, t + j, s % 8 === 0 ? 1 : 0.7);
+      // dal gradino 7, in battaglia, gli archi staccati prendono il posto degli archi tesi
+      if (s % 2 === 0 && !(P.epic >= 7 && state === 'battle')) tense(T, (s & 2 ? p[2] : p[3]) + 12, t + j, s % 8 === 0 ? 1 : 0.7);
       if (s === 0 || s === 3 || s === 8 || s === 11) drum(T, t + j, s % 8 ? 0.3 : 0.45, s % 8 === 0);
       if (s % 2 === 1) shaker(T, t + j, s % 4 === 3 ? 0.9 : 0.5);
     }
@@ -706,12 +917,140 @@ export function createMusic(ctx, dest, opts = {}) {
       if (s === 0 && (pb % 2 === 0 || bc.timp === 'every')) timp(B, K.bass, t, 0.7, 1.2);
       if (s === 0 && (pb === 0 || (bc.crash4 && pb === 4))) crash(B, t, 0.8);
       if (bc.choir && (s === 0 || (s === 8 && split))) choir(B, K, t, split ? BEAT * 2 : BAR, 0.85);
-      if (!(kind === 'B' && cyc % 2 === 1)) {
+      if (!(kind === 'B' && cyc % 2 === 1) || climax) {   // nel culmine il tema non fa la pausa della frase B
         const at = pb * 16 + s, e = P.MELS['H' + kind].get(at);
         if (e) brass(B, e.m, t, e.d * BEAT - 0.02, bc.leadVel ?? 1, bc.counter ? 'brassR' : 'brass', bc.counter ? 0.4 : 0.12);
         const Lo = P.MELS['L' + kind], el = Lo && Lo.get(at); if (el) brass(B, el.m, t, el.d * BEAT - 0.02, 0.6, 'brassLo', -0.2);
-        const Kc = P.MELS['K' + kind], ek = Kc && Kc.get(at); if (ek) brass(B, ek.m, t, ek.d * BEAT - 0.02, 0.75, 'brassL', -0.4);
+        const Kc = P.MELS['K' + kind], ek = Kc && Kc.get(at);
+        if (ek) { if (bc.counter) brass(B, ek.m, t, ek.d * BEAT - 0.02, 0.75, 'brassL', -0.4); else lowBrass(B, [ek.m], t, ek.d * BEAT - 0.02, 0.7); }   // (6) seconda sezione: tromboni
       }
+    }
+    if (P.epic) epicStep(P, t, j, kind, pb, s, cyc, K, split, hornT);
+  }
+  // Strati della scala di epicità (piano 07), sopra quelli del profilo: ogni gradino aggiunge, nella calma (C e M),
+  // nella battaglia (B) e, dal gradino 6, nel culmine (U). Il numero tra parentesi è il gradino.
+  const TAIKO = { 0: [1, 2], 3: [0.45, 1], 6: [0.7, 2], 8: [0.9, 2], 10: [0.4, 1], 11: [0.5, 1], 14: [0.75, 1] };   // [forza, tamburi]
+  const SPIC = [1, 2, 3, 2, 1, 2, 3, 2, 1, 2, 3, 2, 3, 2, 3, 2];                                                         // voce del tappeto
+  function epicStep(P, t, j, kind, pb, s, cyc, K, split, hornT) {
+    const ep = P.epic, c = P.cfg, bc = c.bat || {}, C = LY.calm, M = LY.mel, B = LY.bat, U = LY.cul, p = K.pad;
+    const head = s === 0 || (s === 8 && split), d = split ? BEAT * 2 : BAR, at = pb * 16 + s, vw = c.vowel || 'a';
+    const mo = P.motif, mi = MOTIF_AT[s], mBar = !!mo && mo.where[kind].includes(pb) && mi != null && mi < mo.length;
+    const fan = (L, vel) => {   // fanfara delle trombe sulla fondamentale: tre colpi ribattuti e la quinta
+      const r = top(K.bass, 65);
+      if (s === 8 || s === 9) trumpet(L, r, t, STEP * 0.8, vel * 0.8);
+      else if (s === 10) trumpet(L, r, t, STEP * 1.8, vel);
+      else if (s === 12) trumpet(L, r + 7, t, BEAT * 0.9, vel);
+    };
+    // nella calma: in battaglia il tappeto della calma resta a metà e i suoi strati nuovi tacciono (li coprirebbe)
+    if (audible(C, t) && state !== 'battle') {
+      // (2) archi gravi a semiminime e timpani in ostinato
+      if (ep >= 2 && !c.pulse && s % 4 === 0) ost(C, K.bass + 12, t + j * 0.5, s === 0 ? 0.3 : 0.2, false);
+      if (ep >= 2 && c.timp !== 'pedal' && s === 8 && pb % 2 === 1) timp(C, K.bass, t + j, 0.2, 0.9);
+      // (3) rullante militare lontano che porta alla frase dopo, tamburo da guerra lontano
+      if (ep >= 3) {
+        if (pb === 7 && s >= 8) snare(C, t + j, 0.05 + (s - 8) * 0.025);
+        if (s === 0 && pb % 4 === 0) drum(C, t, 0.22, true);
+      }
+      // (4) coro lontano (dove il profilo non ha il coro pieno), chiamata delle trombe in fondo alla frase B
+      if (ep >= 4) {
+        if (c.choir === 'far' && head && (hornT == null || pb % 4 >= 2)) vox(C, [p[1], p[2], p[3]], t, d, 0.55, vw, true);
+        if (kind === 'B' && pb === 7) fan(C, 0.4);
+      }
+      // (5) coro pieno (voci gravi su vocale), tromboni e tuba all'inizio delle mezze frasi
+      if (ep >= 5) {
+        if (head) vox(C, [p[0], p[1]], t, d, 0.45, vw === 'u' ? 'u' : 'o', false, true);
+        if (s === 0 && pb % 4 === 0) { lowBrass(C, [p[0], p[1]], t, BAR * 0.95, 0.3, true); tuba(C, K.bass, t, BAR * 0.95, 0.3, true); }
+      }
+      // (6) tamburi grandi lontani
+      if (ep >= 6 && s === 0 && pb % 4 === 0) taiko(C, t, 0.3, 2);
+      // (7) archi staccati in crome nelle battute dispari, campana all'inizio del giro
+      if (ep >= 7) {
+        if (pb & 1 && s % 2 === 0) spic(C, p[SPIC[s]] + 12, t + j * 0.5, s % 4 === 0 ? 0.22 : 0.15);
+        if (s === 0 && pb === 0 && !c.bell) bell(C, p[3] + 12, t, 0.55);
+      }
+    }
+    if (audible(M, t)) {
+      // (2) motivo della Brigata ai corni: frammenti fino al gradino 5, completo dal 6 (anche all'ottava), dal 7 con i tromboni
+      if (mBar) {
+        const m = mo.notes[mi], dd = mo.beats[mi] * BEAT - 0.03;
+        hornS(M, m, t, dd, 0.8, true);
+        if (ep >= 6) hornS(M, m + 12, t, dd, 0.55);
+        if (ep >= 7) lowBrass(M, [m - 12], t, dd, 0.3);
+      }
+      const e = hornT != null && P.MELS[kind].get(at);
+      if (e) {
+        const m = e.m + hornT, dd = e.d * BEAT - 0.03;
+        if (P.reedEcho && P.reedEcho[0] === kind) reed(M, m + P.reedEcho[1], t, dd, 0.5, 'reedE', 0.4);   // (1) il legno
+        if (ep >= 5 && e.d >= 0.5) strings(M, [m < 70 ? m + 12 : m - 12], t, dd, 0.32);                   // (5) archi all'ottava
+        if (ep >= 8 && e.d >= 1) { vox(M, [m], t, dd, 0.3, 'a'); lowBrass(M, [m - 12], t, dd, 0.22); }   // (8) coro sul tema, ottoni all'ottava
+      }
+    }
+    // in battaglia (non mentre sfuma); durante il culmine accordi tenuti, tamburi grandi e archi sul tema passano al culmine
+    if (audible(B, t) && state === 'battle') {
+      const full = !climax;
+      // (2) archi gravi all'ottava sotto in crome, timpani in ostinato (fondamentale e quinta)
+      if (ep >= 2 && s % 2 === 0) ost(B, K.bass, t + j * 0.5, s % 4 === 0 ? 0.5 : 0.32, false);
+      if (ep >= 2 && s === 8) timp(B, K.bass, t + j, 0.4, 0.7); else if (ep >= 2 && s === 12) timp(B, K.bass + 7, t + j, 0.3, 0.6);
+      // motivo: agli ottoni (2–4), ai tromboni (5, all'ottava dal 6) con i corni sopra (6) e le trombe (8)
+      if (mBar) {
+        const m = mo.notes[mi], dd = mo.beats[mi] * BEAT - 0.02;
+        if (ep < 5) brass(B, m, t, dd, 0.55, 'brassM', -0.3); else lowBrass(B, ep >= 6 ? [m - 12, m] : [m], t, dd, 0.55, true);
+        if (ep >= 6) hornS(B, m + 12, t, dd, 0.75, true);
+        if (ep >= 8) trumpet(B, m + 24, t, dd, 0.45);
+      }
+      // (3) corni a due voci sull'accordo, rullante militare (strascichi), tamburi da guerra in fondo alle battute dispari
+      if (ep >= 3) {
+        if (head && full) hornS(B, [p[2], p[3]], t, d - 0.05, 0.6, true);
+        if (bc.snare !== 'march' && (s === 2 || s === 10)) snare(B, t + j, 0.14);
+        else if (bc.snare !== 'march' && (s === 3 || s === 11)) snare(B, t + j, 0.2);
+        if (pb & 1 && s >= 12) drum(B, t + j, 0.28 + (s - 12) * 0.07, false);
+      }
+      // (4) coro lontano, fanfara delle trombe e piatto in crescendo alla fine delle mezze frasi
+      if (ep >= 4) {
+        if (head && full && ep < 5) vox(B, [p[2], p[3]], t, d, 0.5, 'o', true);   // dal 5 lo comprende il coro pieno
+        if (pb === 3 || pb === 7) { fan(B, 0.55); if (s === 8) swell(B, t, t + BEAT * 2, 0.55); }
+        if (s === 0 && pb === 4 && !bc.crash4) crash(B, t, 0.7);
+      }
+      // (5) coro pieno, tromboni sull'accordo e tuba
+      if (ep >= 5 && full) {
+        if (head) { vox(B, [p[0], p[1], p[2], p[3]], t, d, 0.55, vw, false, true); lowBrass(B, [p[0], p[1]], t, d * 0.92, 0.45, true); }
+        if (s === 0 || s === 8) tuba(B, K.bass, t, BEAT * 1.6, 0.45, true);
+      }
+      // (6) tamburi grandi d'insieme
+      if (ep >= 6 && full) { const tk = TAIKO[s]; if (tk) taiko(B, t + j * 0.5, tk[0], tk[1], s % 8 === 0); }
+      // (7) archi staccati in semicrome, campane all'inizio delle mezze frasi
+      if (ep >= 7) {
+        if ((s & 4) === 0 || s % 2 === 0) spic(B, p[SPIC[s]] + 12, t + j * 0.3, s % 4 === 0 ? 0.32 : 0.2);   // semicrome sul 1° e 3° battito
+        if (s === 0 && pb === 4) bell(B, p[3] + 12, t, 0.6);
+      }
+      // sul tema eroico: archi all'ottava (5), trombe all'ottava e coro (8); non nelle battute del motivo
+      const e = ep >= 5 && (!(kind === 'B' && cyc % 2 === 1) || climax) && !(mo && mo.length === 4 && mo.where[kind].includes(pb)) && P.MELS['H' + kind].get(at);
+      if (e) {
+        const dd = e.d * BEAT - 0.02;
+        if (full) strings(B, [e.m < 70 ? e.m + 12 : e.m - 12], t, dd, 0.3);
+        if (ep >= 8) { trumpet(B, e.m < 74 ? e.m + 12 : e.m, t, dd, 0.42); if (e.d >= 1 && full) vox(B, [e.m], t, dd, 0.34, 'a'); }
+      }
+    }
+    if (ep >= 6 && audible(U, t)) {
+      // (6) culmine: ottoni gravi e tuba sull'accordo, coro pieno, tamburi grandi su ogni battito e in contrattempo,
+      // piatti, motivo a piena orchestra su ogni battuta di tonica
+      if (head) {
+        lowBrass(U, [p[0] - 12, p[0], p[1], p[2]], t, d * 0.95, 0.65, true); tuba(U, K.bass, t, d * 0.95, 0.6, true);
+        vox(U, [p[0], p[1], p[2], p[3]], t, d, 0.65, vw, false, true);
+      }
+      const tk = TAIKO[s] || (s % 4 === 0 ? [0.6, 2] : null); if (tk) taiko(U, t + j * 0.3, tk[0], 2, s % 4 === 0);
+      if (s === 0 && pb % 2 === 0) crash(U, t, 0.75);
+      const cm = mo && mi != null && (mo.where[kind].includes(pb) || (kind === 'A' && (pb === 0 || pb === 4)));
+      // il motivo: corni all'ottava e alla doppia ottava (una voce) sopra i tromboni della battaglia; dove la battaglia
+      // non lo suona (frase A del tema trionfale), anche i tromboni
+      if (cm) { const m = mo.notes[mi], dd = BRIGATA[mi][1] * BEAT - 0.02; hornS(U, [m + 12, m + 24], t, dd, 1, true); if (!mBar) lowBrass(U, [m - 12, m], t, dd, 0.6, true); }
+      const e = P.MELS['H' + kind].get(at);
+      // (7) trombe sul tema eroico, violini acuti tenuti sull'accordo; (8) soprani del coro sul tema, all'ottava
+      if (ep >= 7) {
+        if (head) strings(U, [p[2] + 12, p[3] + 12], t, d, 0.45);
+        if (e && (ep < 8 || e.d >= 0.5)) trumpet(U, e.m, t, e.d * BEAT - 0.02, 0.5);
+      }
+      if (ep >= 8 && e && e.d >= 1) vox(U, [e.m <= 72 ? e.m + 12 : e.m], t, e.d * BEAT - 0.02, 0.42, 'a');
     }
   }
   function stepMenu(n, t, j) {
@@ -761,6 +1100,7 @@ export function createMusic(ctx, dest, opts = {}) {
       }
       if (bar === 7 && s >= 8) timp(C, K.bass, t + j, 0.12 + (s - 8) * 0.06, 0.4);
       if (bar === 15 && s === 8) swell(LY.st, t, t + BEAT * 2, 0.8);
+      if (P.epic) finaleEpic(P, ph, pb, kind, at, s, t, j, K, split);
       return;
     }
     const k = bar - 24, K = P.CH[['b6', 'b7', '1', '1'][k]];
@@ -774,6 +1114,43 @@ export function createMusic(ctx, dest, opts = {}) {
       if (k === 2) { crash(B, t, 1, 3.5); drum(B, t, 1, true); [62, 66, 69, 74, 78, 81, 86].forEach((m, i) => harp(C, m, t + 0.1 + i * STEP, 0.8)); }
     }
     if (k === 1 && s >= 8) timp(B, K.bass, t + j, 0.2 + (s - 8) * 0.07, 0.3);
+    if (!P.epic) return;
+    // cadenza a orchestra piena: coro, tromboni e tuba, tamburi grandi; sull'accordo finale il motivo alle trombe
+    const p = K.pad;
+    if (s === 0 && k < 3) {
+      const d = k < 2 ? BAR : BAR * 2;
+      vox(C, [p[1], p[2], p[3]], t, d, 0.6, 'a', false, true); lowBrass(B, [p[0] - 12, p[0], p[1]], t, d - 0.1, 0.55, true); tuba(B, K.bass, t, d - 0.1, 0.55, true);
+      taiko(B, t, 1, 2, true);
+    }
+    if (k === 1 && s >= 8 && s % 2 === 0) taiko(B, t, 0.3 + (s - 8) * 0.07, 1);
+    const mi = MOTIF_AT[s], mo = P.motif;
+    if (k === 2 && mi != null && mo) {
+      const m = mo.notes[mi], dd = (mi === 3 ? 5 : BRIGATA[mi][1]) * BEAT - 0.1;
+      trumpet(B, m + 24, t, dd, 0.6); lowBrass(B, [m], t, dd, 0.5); hornS(M, m + 12, t, dd, 0.65);
+    }
+  }
+  // «Valle liberata» sulla scala di epicità: il motivo della Brigata all'alba (corni), con le trombe lontane nella
+  // seconda frase e a piena orchestra sul tema eroico; coro su vocali, tromboni e tuba, archi all'ottava, tamburi grandi.
+  function finaleEpic(P, ph, pb, kind, at, s, t, j, K, split) {
+    const C = LY.calm, M = LY.mel, B = LY.bat, p = K.pad, head = s === 0 || (s === 8 && split), d = split ? BEAT * 2 : BAR;
+    const mo = P.motif, mi = MOTIF_AT[s], mm = mi != null && mo ? mo.notes[mi] : null, md = mi != null ? BRIGATA[mi][1] * BEAT - 0.03 : 0;
+    if (ph === 0) {
+      if (pb === 4 && mm != null) hornS(M, mm, t, md, 0.7);
+      if (head && pb >= 4) vox(C, [p[0], p[1]], t, d, 0.3, 'o');
+    } else if (ph === 1) {
+      if (pb === 2 && mm != null) { trumpet(M, mm + 12, t, md, 0.4); hornS(M, mm, t, md, 0.7); }
+      if (head) vox(C, [p[0], p[1]], t, d, 0.45, 'o');
+      if (s === 0 && pb % 4 === 0) { lowBrass(C, [p[0], p[1]], t, BAR * 0.95, 0.3); tuba(C, K.bass, t, BAR * 0.95, 0.3); }
+      const e = P.MELS.B.get(at); if (e) strings(M, [e.m < 70 ? e.m + 12 : e.m - 12], t, e.d * BEAT - 0.03, 0.32);
+    } else {
+      if ((pb === 0 || pb === 4) && mm != null) { lowBrass(B, [mm - 12, mm], t, md, 0.55); hornS(B, mm + 12, t, md, 0.75); trumpet(B, mm + 24, t, md, 0.45); }
+      if (head) { vox(B, [p[0], p[1], p[2]], t, d, 0.5, 'a', false, true); lowBrass(B, [p[0], p[1]], t, d * 0.92, 0.45, true); }
+      if (s === 0 || s === 8) tuba(B, K.bass, t, BEAT * 1.6, 0.45);
+      const tk = TAIKO[s]; if (tk) taiko(B, t + j * 0.5, tk[0], tk[1]);
+      spic(B, p[SPIC[s]] + 12, t + j * 0.3, s % 4 === 0 ? 0.3 : 0.18);
+      const e = P.MELS.HA.get(at);
+      if (e) { const dd = e.d * BEAT - 0.02; strings(B, [e.m < 70 ? e.m + 12 : e.m - 12], t, dd, 0.3); trumpet(B, e.m < 74 ? e.m + 12 : e.m, t, dd, 0.42); }
+    }
   }
 
   /* ---------- frasi brevi: vittoria, sconfitta, cambio di fase; «Brigata sconfitta» ---------- */
@@ -848,7 +1225,7 @@ export function createMusic(ctx, dest, opts = {}) {
     setMode, setProfile, hit, force, update, schedule, duck, setVolume,
     finished: () => finDone,   // «Valle liberata» è finita da sola (e si è tornati al tema del menu)
     sting: (kind, t) => sting(kind, t),
-    state: () => ({ mode, state, profile: prof.id, key: prof.key, bpm: prof.bpm, intensity: +sm.toFixed(3), notes: notes.length, live: live.length, played: stats.notes, dropped: stats.dropped }),
+    state: () => ({ mode, state, profile: prof.id, key: prof.key, bpm: prof.bpm, epic: prof.epic || 0, climax, intensity: +sm.toFixed(3), notes: notes.length, live: live.length, played: stats.notes, dropped: stats.dropped, peak: stats.peak }),
     timeline,
   };
 }

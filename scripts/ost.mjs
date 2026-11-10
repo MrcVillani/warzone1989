@@ -1,9 +1,12 @@
-// Album della colonna sonora (piano 06): «Warzone 1989 · Operazione Valle Grigia (colonna sonora originale)».
+// Album della colonna sonora (piani 06 e 07): «Warzone 1989 · Operazione Valle Grigia (colonna sonora originale)».
 // Registra le 11 tracce con lo stesso motore del gioco (client/music.js) dentro Chromium, con OfflineAudioContext
 // (44,1 kHz, stereo), le codifica in MP3 a 192 kbps con i tag ID3 e scrive in dist/ost/ i file «01 Valle del
 // Serra.mp3» … «11 Brigata sconfitta.mp3» più scaletta.txt (copertina testuale, titoli, durate, descrizioni).
 // Ogni traccia si controlla dopo la codifica (il file MP3 si decodifica di nuovo nel browser): picco sotto −1 dBFS,
 // nessun silenzio anomalo, nessun clic, durata nei limiti. Se un controllo non passa lo script esce con errore.
+// Ogni brano di missione ha il suo gradino di epicità (piano 07, dal profilo in client/music.js), riportato in scaletta;
+// dal gradino 6 l'arco passa anche per il culmine (calma → tensione → battaglia → culmine → battaglia → calma).
+// DETTAGLI=1 stampa anche il livello efficace ogni 10 s e per tratto dell'arco.
 // Uso: npm run ost            (richiede Playwright con Chromium, come npm run e2e)
 //      npm run ost -- 3 8     solo le tracce 3 e 8
 import { createRequire } from 'node:module';
@@ -12,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { build } from 'esbuild';
 import { Mp3Encoder } from '@breezystack/lamejs';
+import { musicProfile } from '../client/music.js';
 
 // Playwright si carica con require, come nei test end-to-end: così vale anche l'installazione globale del sistema.
 const { chromium } = createRequire(import.meta.url)('playwright');
@@ -23,31 +27,37 @@ const ARTIST = 'Warzone 1989';
 const SR = 44100, KBPS = 192;
 const CEIL_DB = -2;     // picco massimo dopo il guadagno (il controllo finale chiede meno di −1 dBFS sul file MP3)
 
-// Tracce: fonte (menu, missione, finale, sconfitta), durata ammessa e una riga di descrizione per la scaletta.
+// Tracce: fonte (menu, missione, finale, sconfitta), durata ammessa e una riga di descrizione per la scaletta;
+// climax: battute d'inizio e di fine del culmine (solo dal gradino 6).
 const TRACKS = [
   { title: 'Valle del Serra', kind: 'menu', min: 90, max: 120,
     desc: 're minore, 72 battiti: il tema del menu, prima ai legni e poi ai corni, con arpa e coro lontano sul giro del menu.' },
   { title: 'Testa di ponte', kind: 'game', id: 'testa-di-ponte',
-    desc: 'si minore, 64 battiti: notte sul fiume; il tema a frasi spezzate al legno, arpa rada, una battaglia guardinga e trattenuta.' },
+    desc: 'si minore, 64 battiti: notte sul fiume; il tema a frasi spezzate al legno, arpa rada, un piccolo gruppo e una battaglia guardinga e trattenuta.' },
   { title: 'I pozzi del guado', kind: 'game', id: 'pozzi-del-guado',
-    desc: 'mi frigio, 70 battiti: il tema a note ribattute nei corni gravi e i timpani come un battito; battaglia tesa in 3+3+2.' },
+    desc: 'mi frigio, 70 battiti: il tema a note ribattute nei corni gravi sopra timpani e archi gravi in ostinato; battaglia tesa in 3+3+2 e il primo frammento del motivo della Brigata.' },
   { title: 'La colonna dei rifornimenti', kind: 'game', id: 'colonna-rifornimenti', battleEnd: 48,
-    desc: 'sol minore, 96 battiti: il tema in passo di marcia al legno acuto sopra un ostinato che non si ferma mai.' },
+    desc: 'sol minore, 96 battiti: il tema in passo di marcia al legno acuto sopra un ostinato che non si ferma mai; corni a due voci, rullante militare e tamburi da guerra.' },
   { title: 'Il passo dei larici', kind: 'game', id: 'passo-dei-larici',
-    desc: 'mi bemolle maggiore, 60 battiti: corni a due voci, coro pieno e una campana lontana; battaglia pesante a mezzo tempo.' },
+    desc: 'mi bemolle maggiore, 60 battiti: corni a due voci, coro lontano, trombe e una campana lontana; battaglia pesante a mezzo tempo con i piatti in crescendo.' },
   { title: 'La diga di Serra Alta', kind: 'game', id: 'diga-serra-alta',
-    desc: 'do lidio, 68 battiti: arpa ad acqua in semicrome e il tema al flauto nell’acuto; in battaglia un ostinato a onde.' },
-  { title: 'Due fuochi', kind: 'game', id: 'due-fuochi',
-    desc: 'fa diesis minore, 84 battiti: il tema e una seconda voce per moto contrario, ai due lati, anche negli ottoni della battaglia.' },
-  { title: 'Contrattacco', kind: 'game', id: 'contrattacco', stage2: 30, battleEnd: 40,
-    desc: 'da la minore a la maggiore, 80 battiti: cupo e trattenuto finché si resiste, poi il tema torna trionfale in maggiore.' },
-  { title: 'Il comando del Direttorio', kind: 'game', id: 'comando-direttorio', battleEnd: 40,
-    desc: 're minore, 88 battiti: il tema puntato dei corni, coro pieno, tamburi e ottoni raddoppiati all’ottava; l’assalto finale.' },
-  { title: 'Valle liberata', kind: 'finale', min: 60, max: 90,
-    desc: 're maggiore, 80 battiti: dall’alba al trionfo; legno, corni a due voci e ottoni, poi la cadenza si bemolle – do – re.' },
+    desc: 'do lidio, 68 battiti: arpa ad acqua e il tema al flauto nell’acuto; coro pieno, tromboni e tuba, archi all’ottava in una sala più ampia; in battaglia un ostinato a onde.' },
+  { title: 'Due fuochi', kind: 'game', id: 'due-fuochi', climax: [23, 30],
+    desc: 'fa diesis minore, 84 battiti: il tema e una seconda voce per moto contrario; tamburi grandi, due sezioni di ottoni in contrappunto, il motivo della Brigata completo e il primo culmine.' },
+  { title: 'Contrattacco', kind: 'game', id: 'contrattacco', stage2: 30, battleEnd: 40, climax: [33, 38],
+    desc: 'da la minore a la maggiore, 80 battiti: cupo, con il coro sulla «u», archi staccati e campane finché si resiste; poi il motivo della Brigata diventa il tema trionfale, fino al culmine.' },
+  { title: 'Il comando del Direttorio', kind: 'game', id: 'comando-direttorio', battleEnd: 40, climax: [27, 37],
+    desc: 're minore, 88 battiti: il tema puntato dei corni, orchestra e coro al completo, ottoni all’ottava, il motivo della Brigata e il culmine dell’assalto finale.' },
+  { title: 'Valle liberata', kind: 'finale', id: 'valle-liberata', min: 60, max: 90,
+    desc: 're maggiore, 80 battiti: dall’alba al trionfo; il motivo della Brigata ai corni, poi a orchestra piena sul tema eroico e alle trombe sulla cadenza si bemolle – do – re.' },
   { title: 'Brigata sconfitta', kind: 'defeat', min: 30, max: 45,
     desc: 're minore, un battito al secondo: lamento sulla testa del tema, al corno e poi al legno, sopra un tamburo velato.' },
 ];
+// Gradino di epicità dal profilo del gioco (i temi del menu e della sconfitta sono fuori dalla scala).
+for (const t of TRACKS) {
+  t.epic = t.id ? musicProfile(t.id).epic : 0;
+  t.desc += t.epic ? ` Epicità ${t.epic} su 8.` : ' Epicità: fuori scala.';
+}
 for (const t of TRACKS) if (t.kind === 'game') { t.min = 150; t.max = 180; }
 
 const only = process.argv.slice(2).map(Number).filter(Boolean);
@@ -64,6 +74,7 @@ async function renderInPage(tr) {
     // arco: calma → tensione (battuta 10) → battaglia (16, il colpo cade sul battere) → calma (E) e dissolvenza
     plan = [[10 * BAR - 0.3, 'tension'], [16 * BAR - 1.2, 'battle'], [E * BAR - 2, 'calm']];
     if (tr.stage2) plan.push([tr.stage2 * BAR, 'stage2']);
+    if (tr.climax) plan.push([tr.climax[0] * BAR - 1.2, 'climax'], [tr.climax[1] * BAR - 1, 'battle']);
     plan.sort((x, y) => x[0] - y[0]);
     dur = N * BAR + 2.5; fadeOut = 14;
   } else if (tr.kind === 'menu') { dur = 32 * 240 / 72 + 2; fadeOut = 11; }
@@ -103,7 +114,15 @@ async function renderInPage(tr) {
     return o;
   };
   window.__trk = { L: toI16(L), R: toI16(R) };
-  return { n, g, peak0: pk, rms0, timeline: m.timeline, st: m.state(), bpm: profile && profile.bpm };
+  // livello efficace (prima del guadagno, in dB) dei tratti dell'arco: calma, battaglia, culmine, ritorno alla calma
+  const span = (a, b) => { const s0 = Math.floor(a * SR), s1 = Math.min(n, Math.floor(b * SR)); if (s1 <= s0) return null; let q = 0; for (let i = s0; i < s1; i++) q += L[i] * L[i] + R[i] * R[i]; return 20 * Math.log10(Math.sqrt(q / (2 * (s1 - s0)))); };
+  let arc = null;
+  if (profile) {
+    const BAR = 240 / profile.bpm, E = tr.battleEnd || 32, C = tr.climax;
+    arc = { calma: span(1, 10 * BAR - 1), battaglia: span(16 * BAR + 2, (C ? C[0] : E) * BAR - 1.5), culmine: C ? span(C[0] * BAR + 2.5, C[1] * BAR - 1.5) : null,
+      ritorno: C ? span(C[1] * BAR + 4, E * BAR - 2.5) : null, calma2: span(E * BAR + 4, dur - fadeOut - 1) };
+  }
+  return { n, g, peak0: pk, rms0, arc, timeline: m.timeline, st: m.state(), bpm: profile && profile.bpm };
 }
 
 // Controlli sul file finito, dentro la pagina: decodifica l'MP3, misura picco, RMS, silenzi e clic.
@@ -198,16 +217,17 @@ for (const [i, tr] of TRACKS.entries()) {
     click: c.click.worst < 25 * Math.max(c.click.p999, 1),
     fmt: c.ch === 2 && c.sr === SR && c.nan === 0,
   };
-  const res = { no: i + 1, title: tr.title, file, dur: c.dur, peak: c.peak, rms: c.rms, gain: r.g, desc: tr.desc, ok, quiet, click: c.click, kb: mp3.length / 1024, bpm: r.bpm };
+  const res = { no: i + 1, title: tr.title, file, dur: c.dur, peak: c.peak, rms: c.rms, gain: r.g, desc: tr.desc, ok, quiet, click: c.click, kb: mp3.length / 1024, bpm: r.bpm, epic: tr.epic, arc: r.arc };
   results.push(res);
   for (const [k, v] of Object.entries(ok)) if (!v) failures.push(`${fileName(i, tr)}: controllo «${k}» non superato`);
-  const tl = r.timeline.filter(e => e.state || e.profile).map(e => `${e.t.toFixed(0)} s ${e.state || e.profile}`).join(', ');
-  console.log(`${String(i + 1).padStart(2, '0')} ${tr.title.padEnd(28)} ${mmss(c.dur)}  picco ${db(c.peak)} dBFS  RMS ${db(c.rms)} dBFS  ` +
+  const tl = r.timeline.filter(e => e.state || e.profile || e.climax != null).map(e => `${e.t.toFixed(0)} s ${e.state || e.profile || (e.climax ? 'culmine' : 'fine culmine')}`).join(', ');
+  console.log(`${String(i + 1).padStart(2, '0')} ${tr.title.padEnd(28)} ${mmss(c.dur)}  epicità ${tr.epic || '—'}  picco ${db(c.peak)} dBFS  RMS ${db(c.rms)} dBFS  ` +
     `guadagno ${db(r.g)} dB  ${(mp3.length / 1024 / 1024).toFixed(1)} MB  note ${r.st.played} (scartate ${r.st.dropped})  ` +
     `clic: peggiore ${c.click.worst.toFixed(1)} a ${c.click.at.toFixed(2)} s (99,9° ${c.click.p999.toFixed(1)})  ` +
     `silenzi ${quiet.length}${tl ? `  [${tl}]` : ''}  ${((Date.now() - t0) / 1000).toFixed(0)} s` +
     (Object.values(ok).every(Boolean) ? '' : '  ← CONTROLLO NON SUPERATO'));
   // DETTAGLI=1: livello efficace ogni 10 s (per controllare l'arco calma → battaglia → calma)
+  if (process.env.DETTAGLI && r.arc) console.log('   arco (RMS prima del guadagno): ' + Object.entries(r.arc).filter(([, v]) => v != null).map(([k, v]) => `${k} ${v.toFixed(1)} dB`).join(', '));
   if (process.env.DETTAGLI) console.log('   RMS ogni 10 s: ' + Array.from({ length: Math.ceil(c.wins.length / 20) }, (_, k) => { const w = c.wins.slice(k * 20, k * 20 + 20); return db(Math.sqrt(w.reduce((a, x) => a + x * x, 0) / w.length)); }).join(' '));
 }
 await browser.close();
