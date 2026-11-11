@@ -199,6 +199,7 @@ export const AI_PLAYER = { label: 'IA del giocatore', first: 600, gap: 95, w0: 6
    - maxTier: livello massimo che il giocatore può ricercare in questa missione;
    - seed: seme della mappa (provvisorio, da fissare con il bilanciamento); map: ritocchi alla mappa
      (lake: lago al centro con due guadi; bases: 2 = seconda base nemica in ENEMY_BASE2);
+   - night: true = missione notturna (solo aspetto: il client la disegna di notte; nessun effetto sulle regole);
    - player: gasolio iniziale (res), genieri (builders), mezzi (units: progetti), edifici già pronti (structs);
    - enemy: ricerche già completate (tech), livello massimo che può ricercare (maxTier), moltiplicatore di rendita
      (inc) e di tempo di ricerca (rs), costruisce o no (build: true, false o 'repair', cioè i genieri riparano
@@ -215,7 +216,7 @@ const ET = n => AI_TECH.slice(0, n); // le prime n ricerche dell'IA, nel suo ord
 const LMG = { c: 'L', p: 'W', w: 'MG' }, MCN = { c: 'M', p: 'HT', w: 'CN' }, MHMG = { c: 'M', p: 'HT', w: 'HMG' }, HCN = { c: 'H', p: 'T', w: 'CN75' };
 export const MISSIONS = [
   {
-    id: 'testa-di-ponte', name: 'Testa di ponte', seed: 1101, maxTier: 1, map: {},
+    id: 'testa-di-ponte', name: 'Testa di ponte', seed: 1101, maxTier: 1, map: {}, night: true,
     brief: '12 ottobre 1989. La Brigata Aurora ha passato il Serra di notte e tiene una striscia di riva. ' +
       'A sud-est il Direttorio Ferreo ha lasciato un avamposto senza fabbriche, ma irto di torrette che i suoi genieri riparano. ' +
       'Metti in funzione sei pompe per dare gasolio alla testa di ponte, poi spazza via l’avamposto.',
@@ -227,7 +228,7 @@ export const MISSIONS = [
     },
   },
   {
-    id: 'pozzi-del-guado', name: 'I pozzi del guado', seed: 2202, maxTier: 2, map: {},
+    id: 'pozzi-del-guado', name: 'I pozzi del guado', seed: 2202, maxTier: 2, map: {}, night: false,
     brief: 'I pozzi lungo il guado sono l’unica riserva di gasolio rimasta nella valle, e il Direttorio li vuole quanto noi. ' +
       'La sua base è a poche ore di marcia e manderà le prime colonne presto. ' +
       'Metti in funzione otto pompe e tienile attive per nove minuti di fila: ai convogli basta questo.',
@@ -239,7 +240,7 @@ export const MISSIONS = [
     },
   },
   {
-    id: 'colonna-rifornimenti', name: 'La colonna dei rifornimenti', seed: 3303, maxTier: 2, map: {},
+    id: 'colonna-rifornimenti', name: 'La colonna dei rifornimenti', seed: 3303, maxTier: 2, map: {}, night: false,
     brief: 'Una nostra colonna di rifornimenti è ferma in fondo alla valle, con il ponte ancora da riparare. ' +
       'Il Direttorio non ha basi in zona, ma i suoi reparti mobili entreranno dai bordi, uno dopo l’altro e sempre più numerosi. ' +
       'Resisti dodici minuti, finché la colonna non è passata.',
@@ -251,7 +252,7 @@ export const MISSIONS = [
     },
   },
   {
-    id: 'passo-dei-larici', name: 'Il passo dei larici', seed: 4401, maxTier: 3, map: {},
+    id: 'passo-dei-larici', name: 'Il passo dei larici', seed: 4401, maxTier: 3, map: {}, night: false,
     brief: 'Oltre il passo dei larici il Direttorio ha messo in piedi la sua prima base vera, con fabbrica e laboratorio. ' +
       'Da lì partono i mezzi che ci hanno colpito al guado. ' +
       'Distruggi il comando, le fabbriche e i genieri nemici e apri la strada verso nord.',
@@ -263,7 +264,7 @@ export const MISSIONS = [
     },
   },
   {
-    id: 'diga-serra-alta', name: 'La diga di Serra Alta', seed: 5564, maxTier: 3, map: { lake: true },
+    id: 'diga-serra-alta', name: 'La diga di Serra Alta', seed: 5564, maxTier: 3, map: { lake: true }, night: false,
     brief: 'Il Direttorio ha aperto le chiuse della diga di Serra Alta e metà valle è finita sott’acqua. ' +
       'La sua base è oltre il lago: si arriva solo dai due guadi stretti ai lati, oppure sull’acqua con gli hovercraft. ' +
       'Scegli la strada e distruggi la base.',
@@ -275,7 +276,7 @@ export const MISSIONS = [
     },
   },
   {
-    id: 'due-fuochi', name: 'Due fuochi', seed: 6612, maxTier: 3, map: { bases: 2 },
+    id: 'due-fuochi', name: 'Due fuochi', seed: 6612, maxTier: 3, map: { bases: 2 }, night: false,
     brief: 'Il nemico ha diviso le forze in due basi, una a est e una a sud-est, e prova a stringerci in mezzo. ' +
       'Se ne resta in piedi una, l’altra rinasce in pochi giorni. ' +
       'Distruggi tutte e due le basi del Direttorio.',
@@ -290,7 +291,7 @@ export const MISSIONS = [
     },
   },
   {
-    id: 'contrattacco', name: 'Contrattacco', seed: 7707, maxTier: 4, map: {},
+    id: 'contrattacco', name: 'Contrattacco', seed: 7707, maxTier: 4, map: {}, night: false,
     brief: 'Il Direttorio ha richiamato le riserve e lancia tutto contro la nostra linea. ' +
       'Per otto minuti dovrai solo tenere: i rinforzi non arriveranno prima. ' +
       'Poi passa al contrattacco e distruggi la base da cui partono le colonne.',
@@ -302,7 +303,7 @@ export const MISSIONS = [
     },
   },
   {
-    id: 'comando-direttorio', name: 'Il comando del Direttorio', seed: 8838, maxTier: 4, map: {},
+    id: 'comando-direttorio', name: 'Il comando del Direttorio', seed: 8838, maxTier: 4, map: {}, night: false,
     brief: '31 ottobre 1989. Il comando del Direttorio Ferreo è in fondo alla valle, dietro bunker e torrette. ' +
       'Ha i mezzi migliori e una rendita che sembra non finire mai. ' +
       'È l’assalto finale: distruggi comando, fabbriche e genieri, e la Valle del Serra è libera.',

@@ -108,7 +108,8 @@ export function armorOf(e) {
 //   map: id di una mappa disegnata (MAPS in maps/index.js, per esempio 'latina'), solo in schermaglia; 'casuale' o
 //   niente = la mappa generata dal seme, come sempre. S.map è l'id della mappa disegnata, oppure null.
 // Stato in più: S.mission (id della missione o null), S.objective, S.maxTier (livello massimo del giocatore, null in
-// schermaglia), S.ecfg (configurazione del nemico in missione), S.mapOpts (ritocchi della mappa).
+// schermaglia), S.ecfg (configurazione del nemico in missione), S.mapOpts (ritocchi della mappa), S.night (true nelle
+// missioni notturne, campo `night` di MISSIONS; false altrove e in schermaglia: solo aspetto, nessuna regola).
 // Con opts.tech o opts.designs ma senza missione è una schermaglia con quelle ricerche e quei progetti.
 export function newGame(diff, seed, opts) {
   const M = opts && opts.mission != null ? missionOf(opts.mission) : null;
@@ -131,6 +132,7 @@ export function newGame(diff, seed, opts) {
     if (opts.autoplay) S.autoplay = true;
   }
   S.mission = M ? M.id : null; S.objective = null; S.maxTier = M ? M.maxTier : null; S.map = mapId;
+  S.night = !!(M && M.night);
   if (M) S.mapOpts = M.map || {};
   setupWorld();
   if (M) setupMission(M);
@@ -179,6 +181,7 @@ export function loadState(st) {
   S = rest;
   S.timers = S.timers || { fog: 0, ai: 0, end: 0 };
   if (S.lastWarn == null) S.lastWarn = -99;
+  S.night = !!S.night; // i salvataggi di prima del campo valgono «giorno»
   setupWorld();
   for (const e of S.ents) { idx.set(e.id, e); if (e.kind === 'struct') markOcc(e, e.id); }
   if (Array.isArray(saved)) for (const p of saved) proj.push({ ...p });
