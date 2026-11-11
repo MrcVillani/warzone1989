@@ -92,14 +92,14 @@ function forceDestroyWin() {
   return E.S.phase;
 }
 
-async function press(page, touch, sel) {
+export async function press(page, touch, sel) {
   const l = page.locator(sel).first();
   await l.scrollIntoViewIfNeeded();
   if (touch) await l.tap(); else await l.click();
 }
-const music = page => page.evaluate(() => window.__wz.music());
+export const music = page => page.evaluate(() => window.__wz.music());
 // Attende che cond(stato della musica) sia vera, controllando ogni 100 ms; restituisce i secondi trascorsi o −1.
-async function waitMusic(page, cond, maxS) {
+export async function waitMusic(page, cond, maxS) {
   const t0 = Date.now();
   while (Date.now() - t0 < maxS * 1000) {
     const m = await music(page);
@@ -110,12 +110,12 @@ async function waitMusic(page, cond, maxS) {
 }
 const acNow = page => page.evaluate(() => window.__ost.now());
 // Attende che il contesto audio arrivi all'istante t (il tempo della musica, non quello della pagina).
-async function untilAudio(page, t, maxS = 10) {
+export async function untilAudio(page, t, maxS = 10) {
   const t0 = Date.now();
   while (Date.now() - t0 < maxS * 1000 && (await acNow(page)) < t) await page.waitForTimeout(50);
 }
 
-async function newPage(browser, opts, settings) {
+export async function newPage(browser, opts, settings) {
   const ctx = await browser.newContext(opts);
   await ctx.addInitScript(tapSources);
   const page = await ctx.newPage();
@@ -126,7 +126,7 @@ async function newPage(browser, opts, settings) {
 }
 // Campagna con le prime 7 missioni vinte (tutte giocabili, l'ottava porta alla fine della campagna) e musica come
 // richiesto (on: true/false), a volume predefinito.
-async function prepare(page, url, on) {
+export async function prepare(page, url, on) {
   await page.goto(url);
   await page.evaluate(([k, done, on]) => {
     for (const x of ['wz.musica', 'wz.musica.volume', 'wz.sound', 'wz.volume']) try { localStorage.removeItem(x); } catch (e) { /* niente */ }
@@ -138,7 +138,7 @@ async function prepare(page, url, on) {
 }
 // Dal menu principale alla missione i (0–7) come un giocatore: «Missioni», la cartella, «Inizia la missione».
 // Restituisce lo stato della musica nel briefing e l'istante in cui la musica entra in partita.
-async function playMission(page, touch, i) {
+export async function playMission(page, touch, i) {
   await press(page, touch, '#ovMissions');
   await press(page, touch, `#overlay [data-mission="${i}"]`);
   await page.waitForFunction(() => window.__wz.ui.overlay === 'brief');
@@ -149,7 +149,7 @@ async function playMission(page, touch, i) {
   return { brief, T: await w };
 }
 // Dalla partita al menu principale: «Menu» (su telefono nel cassetto), «Esci al menu». Restituisce l'istante del cambio.
-async function leaveToMenu(page, touch) {
+export async function leaveToMenu(page, touch) {
   await openMenu(page);
   await press(page, touch, '#btnExit');
   const w = page.evaluate(() => window.__ost.waitMode('menu'));

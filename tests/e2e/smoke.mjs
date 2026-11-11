@@ -11,6 +11,7 @@ import { runCampaignChecks } from './campagna.mjs';
 import { runPhoneChecks } from './telefono.mjs';
 import { runMusicChecks } from './musica.mjs';
 import { runOstChecks } from './ost.mjs';
+import { runEpicChecks } from './epica.mjs';
 import { runLayoutBChecks, lbLayout } from './layoutb.mjs';
 
 // Playwright si carica con require: così vale anche l'installazione globale del sistema.
@@ -114,6 +115,9 @@ await runMusicChecks({ browser, url, check, todo, profiles: profiles.filter(([n]
 // Colonna sonora della campagna: profilo per missione, fase 2 di «Contrattacco», schermaglia e menu invariati, «Valle
 // liberata», nessuna nota appesa, musica spenta, profili validi, album in dist/ost (tests/e2e/ost.mjs).
 await runOstChecks({ browser, url, check, profiles: profiles.filter(([n]) => !only || n === only) });
+// Scala di epicità (piano 07): gradini 1–8, strati crescenti, motivo della Brigata, culmine dal gradino 6, livelli e
+// voci su OfflineAudioContext, scaletta, gradino in gioco nelle missioni 1, 6 e 8 (tests/e2e/epica.mjs).
+await runEpicChecks({ browser, url, check, profiles: profiles.filter(([n]) => !only || n === only) });
 // Disposizione B per telefono con tocchi veri (851×393, 740×360, Pixel 7) e computer invariato: piano 05 (tests/e2e/layoutb.mjs).
 await runLayoutBChecks({ browser, url, check, todo, only });
 await browser.close();

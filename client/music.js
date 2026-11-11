@@ -261,10 +261,12 @@ const SPECS = {
       bat: { drum: 'heavy', snare: 'half', stabs: 'few', lead: 0, leadVel: 0.85 } },
   },
   // seconda parte di «Contrattacco» (obiettivo alla fase 2): stessa tonica e stesso tempo, in maggiore e trionfale;
-  // il motivo della Brigata diventa il tema (frase A, ai corni nella calma e agli ottoni in battaglia)
+  // il motivo della Brigata diventa il tema (frase A, ai corni nella calma e agli ottoni in battaglia: per questo
+  // motif.where.A è vuoto, il motivo non si raddoppia)
   'contrattacco/2': {
     epic: 7, triumph: true, key: 'la maggiore', tonic: 57, mode: 'ionian', bpm: 80, prog: { A: PA_MAJ, B: PB_MAJ },
-    mel: { A: broad(TRI), B: MEL.B }, hero: { A: TRI }, lead: { A: ['horn', 0], B: ['horn', 0] }, second: { A: ['horn2', 'below'], B: ['horn2', 'below'] },
+    // TRI intero anche nella calma: broad() assorbirebbe la seconda nota del motivo
+    mel: { A: TRI, B: MEL.B }, hero: { A: TRI }, lead: { A: ['horn', 0], B: ['horn', 0] }, second: { A: ['horn2', 'below'], B: ['horn2', 'below'] },
     reed: ['B', 12],
     cfg: { bright: 1.15, choir: 'full', vowel: 'a', timp: 'roll',
       bat: { drum: 'epic', timp: 'every', crash4: true, lead: 0 } },
