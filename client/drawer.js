@@ -1,6 +1,6 @@
 // Disposizione B: barra delle schede, cassetto che si apre sopra la mappa, piazzamento degli edifici con conferma,
 // riquadro della selezione e minimappa ingrandibile. Sul computer non fa nulla: lì resta il pannello classico.
-import { TILE, MW, MH, P, STRUCTS, S, ent, deposits, occ, explored, depIdx, terr, GROUND, DIRT, canPlace, enqueue, designName, clamp } from '../engine/index.js';
+import { TILE, MW, MH, P, STRUCTS, S, ent, deposits, occ, explored, depIdx, terr, BUILDABLE, canPlace, enqueue, designName, clamp } from '../engine/index.js';
 import { ui, cam, view, hover } from './state.js';
 import { layout, onLayout } from './layout.js';
 import { TAB_ICONS, ICON } from './icons.js';
@@ -173,9 +173,9 @@ function placeWhy(type, tx, ty) {
   for (let y = ty; y < ty + D.h; y++) for (let x = tx; x < tx + D.w; x++) {
     if (x < 0 || y < 0 || x >= MW || y >= MH) { edge = true; continue; }
     const i = x + y * MW;
-    if (!explored[i]) dark = true; else if (occ[i]) busy = true; else if (terr[i] !== GROUND && terr[i] !== DIRT) rough = true; else if (depIdx[i] >= 0) dep = true;
+    if (!explored[i]) dark = true; else if (occ[i]) busy = true; else if (!BUILDABLE[terr[i]]) rough = true; else if (depIdx[i] >= 0) dep = true;
   }
-  return edge ? 'fuori dalla mappa' : dark ? 'zona non ancora esplorata' : busy ? 'c’è già qualcosa' : rough ? 'serve terreno sgombro: niente acqua, roccia o bosco' : dep ? 'c’è un giacimento: lì va una pompa' : 'qui non si può costruire';
+  return edge ? 'fuori dalla mappa' : dark ? 'zona non ancora esplorata' : busy ? 'c’è già qualcosa' : rough ? 'serve terreno sgombro: niente acqua, roccia, bosco o case' : dep ? 'c’è un giacimento: lì va una pompa' : 'qui non si può costruire';
 }
 let pbKey = '', pbShown = false;
 let amShown = false;

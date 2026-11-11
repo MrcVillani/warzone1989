@@ -1,8 +1,10 @@
 // Disegno: terreno, edifici, mezzi, effetti, nebbia, minimappa. Legge lo stato del motore senza modificarlo.
 import {
-  TILE, MW, MH, N, P, GROUND, DIRT, WATER, ROCK, FOREST, CHASSIS, STRUCTS,
-  S, terr, deposits, occ, vis, explored, proj, ent, canSee, canPlace, mulberry32, clamp, ftile, towerWeapon,
+  TILE, MW, MH, N, P, GROUND, DIRT, WATER, ROCK, FOREST, CITY, ROAD, CHASSIS, STRUCTS,
+  S, terr, deposits, depIdx, occ, vis, explored, proj, ent, canSee, canPlace, mulberry32, clamp, ftile, towerWeapon,
 } from '../engine/index.js';
+import { drawRoads, drawCity, drawPlaces } from './urban.js';
+import { placesOf, placesOn } from './prefs.js';
 import { ui, cam, view, hover, fxs, PAL, reducedMotion } from './state.js';
 import { fxq } from './quality.js';
 import { layout } from './layout.js';
@@ -37,16 +39,27 @@ export function centerOn(x, y) { cam.x = x - view.cw / cam.z / 2; cam.y = y - vi
 export function screenToWorld(x, y) { return { x: cam.x + x / cam.z, y: cam.y + y / cam.z }; }
 
 /* ---------- terreno ---------- */
+// Colore di base per codice di terreno (HSL): erba, terra, acqua, roccia, bosco (sotto gli alberi), città (sotto il
+// marciapiede), strada (sotto l'asfalto). Le chiazze sfumate valgono solo per i terreni naturali.
+const TERR_HSL = [[80, 19, 32], [36, 23, 36], [196, 27, 26], [38, 7, 39], [80, 19, 32], [40, 6, 42], [45, 4, 28]];
+const NATURAL = v => v !== CITY && v !== ROAD;
+// Colori della minimappa e della carta del briefing, per codice di terreno.
+const MINI_RGB = [[86, 98, 62], [117, 101, 72], [48, 78, 88], [112, 108, 98], [52, 68, 38], [146, 102, 82], [64, 64, 61]];
+function terrainImage(img) {
+  for (let i = 0; i < N; i++) { const c3 = MINI_RGB[terr[i]] || MINI_RGB[0]; img.data[i * 4] = c3[0]; img.data[i * 4 + 1] = c3[1]; img.data[i * 4 + 2] = c3[2]; img.data[i * 4 + 3] = 255; }
+}
+// Seme del disegno di strade e città: fisso per mappa disegnata (Latina è sempre uguale), dal seme altrimenti.
+const urbanSeed = seed => S && S.map ? [...S.map].reduce((a, ch) => a * 31 + ch.charCodeAt(0), 7) % 100000 : seed;
 export function renderTerrain(seed) {
   const c = document.createElement('canvas'); c.width = MW * TILE; c.height = MH * TILE;
   const g = c.getContext('2d'); const r = mulberry32(seed * 7 + 3);
-  const base = v => v === WATER ? [196, 27, 26] : v === DIRT ? [36, 23, 36] : v === ROCK ? [38, 7, 39] : [80, 19, 32];
+  const base = v => TERR_HSL[v] || TERR_HSL[0];
   const col = (v, j) => { const [h, s, l] = base(v); return `hsl(${h},${s}%,${(l + j).toFixed(1)}%)`; };
   for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) { g.fillStyle = col(terr[x + y * MW], (r() - 0.5) * 3); g.fillRect(x * TILE, y * TILE, TILE, TILE); }
   g.globalAlpha = 0.33;
   for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
     const v = terr[x + y * MW];
-    for (let k = 0; k < 3; k++) { g.fillStyle = col(v, (r() - 0.5) * 4); g.beginPath(); g.arc(x * TILE + r() * TILE, y * TILE + r() * TILE, 9 + r() * 12, 0, 7); g.fill(); }
+    for (let k = 0; k < 3; k++) { const j = (r() - 0.5) * 4, ax = r(), ay = r(), ar = r(); if (!NATURAL(v)) continue; g.fillStyle = col(v, j); g.beginPath(); g.arc(x * TILE + ax * TILE, y * TILE + ay * TILE, 9 + ar * 12, 0, 7); g.fill(); }
   }
   g.globalAlpha = 1;
   for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
@@ -62,11 +75,15 @@ export function renderTerrain(seed) {
     if (terr[x + y * MW] !== WATER) continue;
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= MW || ny >= MH) continue;
-      if (terr[nx + ny * MW] === WATER) continue;
+      if (terr[nx + ny * MW] === WATER || terr[nx + ny * MW] === ROAD) continue; // verso i ponti l'ombra la fa la strada
       g.fillStyle = 'rgba(205,195,150,0.16)';
       g.fillRect(x * TILE + (dx > 0 ? TILE - 3 : 0), y * TILE + (dy > 0 ? TILE - 3 : 0), dx ? 3 : TILE, dy ? 3 : TILE);
     }
   }
+  // strade e isolati (mappe disegnate) sopra il terreno e sotto rocce e alberi, che possono sporgere sulla strada
+  const us = urbanSeed(seed);
+  drawRoads(g, terr, i => depIdx[i] >= 0);
+  drawCity(g, terr, us);
   for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
     if (terr[x + y * MW] !== ROCK) continue;
     for (let k = 0; k < 2; k++) {
@@ -97,8 +114,7 @@ export function renderTerrain(seed) {
   terrC = c; terrG = g; initTracks();
   mmBase = document.createElement('canvas'); mmBase.width = MW; mmBase.height = MH;
   const mg = mmBase.getContext('2d'), img = mg.createImageData(MW, MH);
-  const mc = { [GROUND]: [86, 98, 62], [DIRT]: [117, 101, 72], [WATER]: [48, 78, 88], [ROCK]: [112, 108, 98], [FOREST]: [52, 68, 38] };
-  for (let i = 0; i < N; i++) { const c3 = mc[terr[i]]; img.data[i * 4] = c3[0]; img.data[i * 4 + 1] = c3[1]; img.data[i * 4 + 2] = c3[2]; img.data[i * 4 + 3] = 255; }
+  terrainImage(img);
   for (const d of deposits) { const i = d.x + d.y * MW; img.data[i * 4] = 20; img.data[i * 4 + 1] = 18; img.data[i * 4 + 2] = 14; }
   mg.putImageData(img, 0, 0);
 }
@@ -367,7 +383,7 @@ function stampTracks(dt) {
     if (d2 > 1600 || !canSee(P, u)) continue;
     const p = u.builder ? 'W' : u.d.p, water = terr[ftile(u.x) + ftile(u.y) * MW] === WATER;
     if (p === 'V') { if (water && nearView(u.x, u.y, 40)) wake(u); continue; }
-    if (water) continue;
+    if (water || terr[ftile(u.x) + ftile(u.y) * MW] === ROAD) continue; // sull'asfalto niente impronte
     const c = Math.cos(u.ang) * TK, s = Math.sin(u.ang) * TK, W = u.builder ? 12 : CHASSIS[u.d.c].size[1];
     const len = step > 5 ? Math.min(Math.sqrt(d2), 2 * step) + 1 : 6, bx = 3 - len;
     trackG.setTransform(c, s, -s, c, u.x * TK, u.y * TK); trackDirty = true;
@@ -1133,6 +1149,8 @@ export function render(now) {
   g.imageSmoothingEnabled = true;
   drawFog(g);
   for (const f of fxs.fx) if (f.k === 'mark') drawMark(g, f, rm);
+  // nomi dei luoghi delle mappe disegnate: sopra la nebbia, sotto barre e selezioni; solo da vicino
+  if (S.map && placesOn()) { const pl = placesOf(S.map); if (pl) { drawPlaces(g, pl, cam, z, dpr, cw, ch, (x, y) => explored[x + y * MW] === 1); home(g); } }
   selSet.clear(); for (const id of ui.sel) selSet.add(id);
   const batchBars = fxq.level < 2;
   for (const e of S.ents) {
@@ -1207,8 +1225,7 @@ export function drawMissionMap(c) {
   c.width = W; c.height = H;
   const g = c.getContext('2d');
   const img = g.createImageData(MW, MH);
-  const mc = { [GROUND]: [86, 98, 62], [DIRT]: [117, 101, 72], [WATER]: [48, 78, 88], [ROCK]: [112, 108, 98], [FOREST]: [52, 68, 38] };
-  for (let i = 0; i < N; i++) { const c3 = mc[terr[i]]; img.data[i * 4] = c3[0]; img.data[i * 4 + 1] = c3[1]; img.data[i * 4 + 2] = c3[2]; img.data[i * 4 + 3] = 255; }
+  terrainImage(img);
   const tmp = document.createElement('canvas'); tmp.width = MW; tmp.height = MH; tmp.getContext('2d').putImageData(img, 0, 0);
   g.imageSmoothingEnabled = false; g.drawImage(tmp, 0, 0, W, H);
   g.fillStyle = 'rgba(17,20,18,0.18)'; g.fillRect(0, 0, W, H);

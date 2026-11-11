@@ -496,6 +496,8 @@ button { font: inherit; color: inherit; }
   .cstat div { padding: 3px 8px; }
   .cstat b { display: inline; font-size: 14px; margin-right: 6px; }
   .mode .diff .lbl { display: none; }
+  .mode .diff.mapsel .lbl { display: inline; }
+  .mode .mp.credit { display: none; }
   .folder .fn { font-size: 22px; }
   #objective { padding: 3px 8px 4px; max-width: min(400px, calc(100% - 12px)); }
   #objective .ot { font-size: 12px; }

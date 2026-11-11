@@ -2,7 +2,7 @@
 // conferma d'uscita; e l'indicatore dell'obiettivo sopra la mappa durante le missioni.
 // Le regole della campagna (sblocchi, ricerche portate, miglior tempo) sono nel motore: qui solo le schermate.
 import {
-  P, DIFF, MISSIONS, TECH_BY, TIERS, S, startMission, finishMission, campaignSummary, canPlayMission,
+  P, DIFF, MISSIONS, MAPS, TECH_BY, TIERS, S, gridRef, homeOf, startMission, finishMission, campaignSummary, canPlayMission,
 } from '../engine/index.js';
 import { ui } from './state.js';
 import { startGame, resetClient, closeOverlay, showHelp, closeHelp, toast, fmtTime, ov, randomSeed, togglePause } from './ui.js';
@@ -10,6 +10,7 @@ import { drawMissionMap } from './render.js';
 import { getCampaign, setCampaign, resetCampaign, campaignDiff, setCampaignDiff } from './campaign.js';
 import { uiSfx } from './audio.js';
 import { musicSting } from './music.js';
+import { mapPref, setMapPref, mapInfo } from './prefs.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -26,6 +27,7 @@ function open(kind, html) {
 }
 const on = (id, fn) => { const b = $(id); if (b) b.addEventListener('click', fn); };
 const diffChips = (attr, cur) => Object.entries(DIFF).map(([k, v]) => `<button class="btn ${cur === k ? 'on' : ''}" data-${attr}="${k}" aria-pressed="${cur === k}">${v.label}</button>`).join('');
+const mapChips = cur => MAPS.map(m => `<button class="btn ${cur === m.id ? 'on' : ''}" data-map="${m.id}" aria-pressed="${cur === m.id}">${esc(m.name)}</button>`).join('');
 function bindChips(o, attr, fn) {
   o.querySelectorAll(`[data-${attr}]`).forEach(b => b.addEventListener('click', () => {
     o.querySelectorAll(`[data-${attr}]`).forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
@@ -40,6 +42,7 @@ export function showStart() {
   const next = sum.next != null ? sum.missions[sum.next] : null;
   const campLabel = sum.finished ? 'Rigioca le missioni' : sum.completed === 0 && sum.next === 0 ? 'Inizia la campagna' : `Riprendi: missione ${sum.next + 1} · ${esc(next.name)}`;
   const campInfo = sum.finished ? 'Campagna conclusa: la valle è libera.' : sum.completed ? `${sum.completed}/${sum.total} missioni vinte · ${plural(sum.techCount, 'ricerca', 'ricerche')} · ${plural(sum.designCount, 'progetto', 'progetti')}` : `${sum.total} missioni, dalla testa di ponte all’assalto finale.`;
+  const mp = mapInfo(mapPref());
   const o = open('start', `<div class="card menu" role="dialog" aria-labelledby="ovt">
     <p class="eyebrow">Ottobre 1989 · Valle del Serra</p>
     <h1 class="title" id="ovt">WARZONE <span>1989</span></h1>
@@ -56,19 +59,27 @@ export function showStart() {
       <section class="mode" aria-labelledby="mSkirm">
         <p class="mk">Schermaglia</p>
         <h2 class="mt" id="mSkirm">Partita libera</h2>
-        <p class="md">Una carta a caso con tutti i livelli tecnologici. Vinci quando il nemico non ha più comando, fabbriche né genieri.</p>
+        <div class="diff mapsel" role="group" aria-label="Mappa"><span class="lbl">Mappa</span>${mapChips(mp.id)}</div>
+        <p class="md">${esc(mp.desc)}</p>
         <div class="diff"><span class="lbl">Avversario</span>${diffChips('diff', ui.diff)}</div>
-        <p class="mp">Carta operativa n. ${S.seed % 10000}</p>
-        <div class="mact"><button class="primary" id="ovStart">Inizia la schermaglia</button><button class="btn" id="ovMap">Cambia carta</button></div>
+        ${mp.id === 'casuale' ? `<p class="mp">Carta operativa n. ${S.seed % 10000}</p>` : '<p class="mp credit">Ispirata alla geografia della città; disegnata a mano.</p>'}
+        <div class="mact"><button class="primary" id="ovStart">Inizia la schermaglia</button>${mp.id === 'casuale' ? '<button class="btn" id="ovMap">Cambia carta</button>' : ''}</div>
       </section>
     </div>
     <div class="mfoot"><button class="btn" id="ovHelp">Comandi</button><p class="hint">Un clic su un tuo mezzo lo seleziona, un clic sulla mappa gli dà l’ordine. Suono e musica partono al primo tocco: «Suono» nella barra spegne tutto, in «Comandi» regoli la musica.</p></div>
   </div>`);
   bindChips(o, 'diff', d => { ui.diff = d; });
+  // cambio di mappa: la partita sotto il menu si riprepara sulla mappa nuova (la si vede dietro la copertina)
+  bindChips(o, 'map', id => {
+    if (id === mapPref()) return;
+    setMapPref(id); startGame(ui.diff, randomSeed()); showStart();
+    const b = o.querySelector(`[data-map="${id}"]`); if (b) b.focus();
+  });
   on('ovMap', () => { startGame(ui.diff, randomSeed()); showStart(); });
   on('ovStart', () => {
     startGame(ui.diff, S.seed); closeOverlay(); refreshObjective();
-    toast('Sei nel settore B2. Manda i genieri sui giacimenti vicini.');
+    const h = homeOf(P);
+    toast(`Sei nel settore ${gridRef(h.x, h.y)}. Manda i genieri sui giacimenti vicini.`);
   });
   on('ovCamp', () => { if (sum.finished) showCampaign(); else showBrief(sum.next); });
   on('ovMissions', () => showCampaign());
@@ -205,7 +216,7 @@ export function showEnd(won, reason) {
 function showSkirmishEnd(won) {
   const st = S.stats;
   open('end', `<div class="card" role="dialog" aria-labelledby="ovt" style="border-top-color:${won ? 'var(--olive)' : 'var(--brick)'}">
-    <p class="eyebrow">Rapporto finale · schermaglia · ${fmtTime(S.time)} · ${DIFF[S.diff].label}</p>
+    <p class="eyebrow">Rapporto finale · schermaglia${S.map ? ` · ${esc(mapInfo(S.map).name)}` : ''} · ${fmtTime(S.time)} · ${DIFF[S.diff].label}</p>
     <h2 class="title" id="ovt">${won ? 'Valle <span>liberata</span>' : 'Brigata <span>sconfitta</span>'}</h2>
     <p class="brief">${won ? 'Il comando e le fabbriche del Direttorio Ferreo sono fuori uso. I giacimenti della valle sono tuoi.' : 'Hai perso il comando, le fabbriche e tutti i genieri. Il Direttorio Ferreo controlla la valle.'}</p>
     <div class="stats"><div><b>${st.made[P]}</b><span>Mezzi prodotti</span></div><div><b>${st.kills[P]}</b><span>Nemici distrutti</span></div><div><b>${st.lost[P]}</b><span>Perdite</span></div><div><b>${st.built[P]}</b><span>Edifici costruiti</span></div></div>

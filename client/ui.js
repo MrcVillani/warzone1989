@@ -1,8 +1,8 @@
 // Pannello comandi, barra superiore, avvisi, copertina e rapporto finale.
 import {
-  TILE, P, B0, CHASSIS, PROPS, WEAPONS, STRUCTS, BUILD_ORDER, TECH, TECH_BY, DIFF, BUILDER, TIERS, TIER_GATE, FAMILIES, BUNKER_W,
+  TILE, P, CHASSIS, PROPS, WEAPONS, STRUCTS, BUILD_ORDER, TECH, TECH_BY, DIFF, BUILDER, TIERS, TIER_GATE, FAMILIES, BUNKER_W,
   S, ent, newGame, dStats, designName, armorOf, enqueue, cancelQueued, startResearch, pumpRate,
-  cmdStop, ftile, gridRef, tierAvail, tierDone, tierCap, techBlockReason, towerWeapon, speedMul,
+  cmdStop, ftile, gridRef, homeOf, tierAvail, tierDone, tierCap, techBlockReason, towerWeapon, speedMul,
 } from '../engine/index.js';
 import { ui, cam, view, fxs, FACTION, PAL } from './state.js';
 import { selEnts, selUnits, setSel } from './selection.js';
@@ -15,6 +15,7 @@ import { nextAlarm, alarmList, initAlerts, resetAlerts } from './alerts.js';
 import { layout } from './layout.js';
 import { paneTab, toggleDrawer, openDrawer, syncDrawer, startPlacing, updatePlacebar } from './drawer.js';
 import { tilesFor, paintTiles, freeBuilders } from './tiles.js';
+import { mapOpts, placesOf, placesOn, setPlaces } from './prefs.js';
 
 const $ = id => document.getElementById(id);
 export const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -41,8 +42,9 @@ export function toastGo(d, x, y) {
 }
 
 /* ---------- partita ---------- */
+// Schermaglia sulla mappa scelta nel menu (ricordata sul dispositivo): casuale dal seme o disegnata.
 export function startGame(diff, seed) {
-  newGame(diff, seed);
+  newGame(diff, seed, mapOpts());
   resetClient();
 }
 // Dopo una partita nuova (schermaglia o missione): selezione, schede, effetti e camera da capo.
@@ -58,7 +60,8 @@ export function resetClient() {
 // Centra la camera sul comando e sui genieri nella parte di mappa libera sopra la barra degli ordini rapidi.
 function centerOnBase() {
   const own = S.ents.filter(e => !e.dead && e.owner === P);
-  let x0 = B0.x * TILE + 16, x1 = x0, y0 = B0.y * TILE + 16, y1 = y0;
+  const h = homeOf(P);
+  let x0 = h.x * TILE + 16, x1 = x0, y0 = h.y * TILE + 16, y1 = y0;
   for (const e of own) { x0 = Math.min(x0, e.x); x1 = Math.max(x1, e.x); y0 = Math.min(y0, e.y); y1 = Math.max(y1, e.y); }
   const tb = $('touchbar'), st = $('stage');
   const barH = tb && st ? Math.max(0, st.getBoundingClientRect().bottom - tb.getBoundingClientRect().top) : 0;
@@ -448,6 +451,15 @@ const CONTROLS_B = `<p class="sec ctlh">Barra e cassetto</p><dl class="controls"
   <div><dt>Produci</dt><dd>tocco: un mezzo in coda · tieni premuto: cinque · tocco sulla coda: toglilo e riprendi il gasolio</dd></div>
   <div><dt>Selezione</dt><dd>il riquadro in basso a sinistra apre il dettaglio; toccare una tua fabbrica apre Produci, il laboratorio Ricerca</dd></div>
 </dl>`;
+// Crediti delle mappe disegnate, in fondo al manuale.
+const CREDITS = `<p class="sec ctlh">Mappe</p><dl class="controls">
+  <div><dt>Latina</dt><dd>ispirata alla geografia della città; disegnata a mano</dd></div>
+</dl>`;
+// Nomi dei luoghi sulla mappa disegnata: acceso o spento (ricordato sul dispositivo).
+function syncPlaces() {
+  const b = $('ovPlaces'), on = placesOn(); if (!b) return;
+  b.textContent = on ? 'Visibili' : 'Nascosti'; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
+}
 export const ov = () => $('overlay');
 export const randomSeed = () => (Math.random() * 1e9) | 0;
 // Manuale da campo con le impostazioni di suono, musica ed effetti. back: cosa fare alla chiusura (dal menu si torna al menu;
@@ -466,7 +478,8 @@ export function showHelp(back) {
   <div class="audioset"><span class="lbl">Musica</span><button class="btn" id="ovMusic" aria-pressed="true">Accesa</button>
     <label for="ovMVol">Volume</label><input type="range" id="ovMVol" min="0" max="100" step="5" aria-label="Volume della musica"><output id="ovMVolV">50%</output></div>
   <div class="audioset" role="group" aria-label="Qualità degli effetti"><span class="lbl">Effetti</span>${FX_OPTS.map(([k, l]) => `<button class="btn" data-fx="${k}">${l}</button>`).join('')}<output id="ovFxV"></output></div>
-  ${CONTROLS}${layout.b ? CONTROLS_B : ''}<div class="actions"><button class="primary" id="ovClose">${back ? 'Torna al menu' : 'Torna alla partita'}</button></div></div>`;
+  ${placesOf(S && S.map) ? '<div class="audioset"><span class="lbl">Luoghi</span><button class="btn" id="ovPlaces" aria-pressed="true">Visibili</button><span>nomi sulla mappa, da vicino</span></div>' : ''}
+  ${CONTROLS}${layout.b ? CONTROLS_B : ''}${CREDITS}<div class="actions"><button class="primary" id="ovClose">${back ? 'Torna al menu' : 'Torna alla partita'}</button></div></div>`;
   $('ovSound').addEventListener('click', () => setSound(!soundOn()));
   $('ovVol').addEventListener('input', e => setVolume(e.target.value / 100));
   syncSound();
@@ -475,6 +488,8 @@ export function showHelp(back) {
   syncMusic();
   o.querySelectorAll('[data-fx]').forEach(b => b.addEventListener('click', () => { setPref(b.dataset.fx); syncFx(); }));
   syncFx();
+  const pl = $('ovPlaces');
+  if (pl) { pl.addEventListener('click', () => { setPlaces(!placesOn()); syncPlaces(); }); syncPlaces(); }
   $('ovClose').addEventListener('click', closeHelp); $('ovClose').focus();
 }
 export function closeHelp() { const b = helpBack; helpBack = null; if (b) b(); else closeOverlay(); }

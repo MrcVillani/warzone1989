@@ -92,6 +92,8 @@ proiettili in volo, che `loadState` rimette nell'array `proj`.
 | `campaign.js` | salvataggio della campagna sul dispositivo (`localStorage`, chiave `wz.campagna`) |
 | `audio.js` | suoni sintetizzati con Web Audio, posizionati rispetto alla visuale, con limite di voci; volume e acceso/spento salvati sul dispositivo |
 | `music.js` | colonna sonora originale generata in tempo reale: strati calma, tensione e battaglia sullo stesso orologio e sulla stessa armonia, con dissolvenze guidate dall'intensità dei combattimenti; temi del menu, vittoria, sconfitta e cambio di fase; un profilo per ogni missione della campagna (`musicMission(id, fase)`: tonalità, tempo, variante del tema, strumenti), frase «Valle liberata» alla fine della campagna; scala di epicità 1–8 per missione (`epic`, strati che si sommano gradino per gradino), motivo della Brigata (`BRIGATA`) che si completa lungo la campagna e culmine a orchestra piena dal gradino 6 negli scontri più intensi, entro un limite di voci (`MUSIC_LIMITS`); volume e acceso/spento salvati sul dispositivo |
+| `urban.js` | disegno di città (isolati a corte, tetti, poderi), strade con raccordi e mezzeria, ponti, nomi dei luoghi delle mappe disegnate |
+| `prefs.js` | scelte ricordate sul dispositivo: mappa della schermaglia (`wz.mappa`) e nomi dei luoghi (`wz.luoghi`) |
 | `anim.js` | animazioni del client: assetto e rinculo dei mezzi, porte delle fabbriche, cantiere con gru, palla di fuoco, macerie degli edifici; rispetta qualità adattiva e «riduci movimento» |
 | `alerts.js` | posizione degli avvisi toccabili, pulsante «Allarme» (ultimi scontri), frecce ai bordi per gli scontri fuori visuale |
 | `quality.js` | qualità adattiva degli effetti (alta, media, bassa): misura il tempo per fotogramma e regola particelle, tracce e risoluzione della tela; scelta «Effetti» salvata sul dispositivo |
@@ -104,7 +106,8 @@ per terreno, legenda nel file), con le basi dei due lati, i giacimenti e i luogh
 per il menu (`casuale`, `latina`); `newGame(diff, seed, { map: 'latina' })` avvia la schermaglia su una mappa disegnata
 e `S.map` la ricorda nel salvataggio. Due terreni valgono solo qui: `CITY` (isolato, non si attraversa né si
 costruisce) e `ROAD` (strada: si costruisce e i mezzi vanno più veloci secondo `PROPS[p].road`; A* preferisce le
-strade). `homeOf(o)` dà il centro della base di partenza di un lato.
+strade). `homeOf(o)` dà il centro della base di partenza di un lato. `S.night` è vero nelle missioni notturne
+(campo `night` di `MISSIONS`, oggi solo la 1) e serve solo alla grafica.
 
 ## Campagna
 

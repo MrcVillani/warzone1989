@@ -9,6 +9,7 @@ import { initInput, camScroll } from './input.js';
 import { initUI, renderPanel, updateBar, updateSelCount, toast, startGame, randomSeed } from './ui.js';
 import { alertFx, alertPing, alertBuilt, alertToast, updateArrows, resetAlerts } from './alerts.js';
 import { initLayout } from './layout.js';
+import { setMapPref } from './prefs.js';
 import { initDrawer, updatePlacebar } from './drawer.js';
 import { initScreens, showStart, showEnd, showCampaign, showBrief, refreshObjective, resetObjectiveHud, limitText, missionIndex } from './screens.js';
 
@@ -112,7 +113,7 @@ function start(data) {
   let restored = false;
   const ctx = (data && data.ctx) || {};
   try {
-    if (data && data.S && data.S.ents) { loadState(data.S); if (data.cam) Object.assign(window.__wz.cam, data.cam); if (!S.mission) ui.diff = data.S.diff; restored = true; }
+    if (data && data.S && data.S.ents) { loadState(data.S); if (data.cam) Object.assign(window.__wz.cam, data.cam); if (!S.mission) { ui.diff = data.S.diff; setMapPref(S.map || 'casuale'); } restored = true; }
   } catch (err) { restored = false; }
   if (restored) { ui.techBefore = Array.isArray(ctx.techBefore) ? ctx.techBefore : []; resetObjectiveHud(); }
   // schermate fuori dalla partita: si torna alla stessa (il briefing riprepara la missione da capo)
