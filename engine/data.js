@@ -2,7 +2,26 @@
 // Nessuna dipendenza dal DOM: questo file è usato dal motore, dal client e dai test.
 
 export const TILE = 32, MW = 64, MH = 64, N = MW * MH;
-export const GROUND = 0, DIRT = 1, WATER = 2, ROCK = 3, FOREST = 4;
+export const GROUND = 0, DIRT = 1, WATER = 2, ROCK = 3, FOREST = 4, CITY = 5, ROAD = 6;
+// Terreni, nell'ordine dei codici qui sopra. ch: lettera nelle mappe disegnate (engine/maps/); walk: attraversabile dai
+// mezzi di terra (l'acqua solo dagli hovercraft); build: ci si può costruire. CITY è un isolato: si comporta come la
+// roccia. ROAD (asfalto, anche i ponti sui canali) è terreno piano: ci si passa più veloci (campo road delle
+// propulsioni) e ci si costruisce come sull'erba, così le basi e i giacimenti vicino alle strade restano usabili e un
+// edificio può fare da sbarramento, come già sulla terra battuta dei guadi.
+export const TERRAIN = [
+  { name: 'Erba', ch: '.', walk: true, build: true },
+  { name: 'Terra', ch: ':', walk: true, build: true },
+  { name: 'Acqua', ch: '~', walk: false, build: false },
+  { name: 'Roccia', ch: '^', walk: false, build: false },
+  { name: 'Bosco', ch: 'T', walk: false, build: false },
+  { name: 'Città', ch: '#', walk: false, build: false },
+  { name: 'Strada', ch: '=', walk: true, build: true },
+];
+// Tabelle per codice di terreno (1 = sì), per i controlli veloci di passabilità e piazzamento.
+export const WALKABLE = Uint8Array.from(TERRAIN, t => t.walk ? 1 : 0);
+export const BUILDABLE = Uint8Array.from(TERRAIN, t => t.build ? 1 : 0);
+// Casella percorribile con quel terreno: a terra, oppure anche l'acqua se water (hovercraft).
+export const walkable = (v, water) => WALKABLE[v] === 1 || (!!water && v === WATER);
 export const P = 0, E = 1;
 export const UNIT_CAP = 100;
 export const B0 = { x: 9, y: 9 };
@@ -15,12 +34,13 @@ export const CHASSIS = {
   H: { name: 'Bisonte', label: 'Pesante', tier: 3, hp: 500, armor: 4, cost: 140, wt: 3, size: [23, 16], rad: 12, req: 'chH' },
   X: { name: 'Mammut', label: 'Superpesante', tier: 4, hp: 800, armor: 6, cost: 220, wt: 4, size: [27, 19], rad: 14, req: 'chX' },
 };
+// road: moltiplicatore di velocità sulla strada (ROAD): le ruote ne guadagnano di più, i cingoli poco.
 export const PROPS = {
-  W: { name: 'Ruote', short: 'Ruote', tier: 1, speed: 1.0, hpm: 1.0, cost: 15, water: false, req: null },
-  HT: { name: 'Semicingoli', short: 'Semic.', tier: 2, speed: 0.85, hpm: 1.2, cost: 35, water: false, req: 'prHT' },
-  T: { name: 'Cingoli', short: 'Cingoli', tier: 3, speed: 0.68, hpm: 1.5, cost: 60, water: false, req: 'prT' },
-  V: { name: 'Hovercraft', short: 'Hover', tier: 3, speed: 1.35, hpm: 0.8, cost: 50, water: true, req: 'prV' },
-  TR: { name: 'Cingoli rinforzati', short: 'Cing. rinf.', tier: 4, speed: 0.58, hpm: 1.8, cost: 90, water: false, req: 'prTR' },
+  W: { name: 'Ruote', short: 'Ruote', tier: 1, speed: 1.0, hpm: 1.0, cost: 15, water: false, road: 1.35, req: null },
+  HT: { name: 'Semicingoli', short: 'Semic.', tier: 2, speed: 0.85, hpm: 1.2, cost: 35, water: false, road: 1.2, req: 'prHT' },
+  T: { name: 'Cingoli', short: 'Cingoli', tier: 3, speed: 0.68, hpm: 1.5, cost: 60, water: false, road: 1.1, req: 'prT' },
+  V: { name: 'Hovercraft', short: 'Hover', tier: 3, speed: 1.35, hpm: 0.8, cost: 50, water: true, road: 1.1, req: 'prV' },
+  TR: { name: 'Cingoli rinforzati', short: 'Cing. rinf.', tier: 4, speed: 0.58, hpm: 1.8, cost: 90, water: false, road: 1.1, req: 'prTR' },
 };
 // family: famiglia dell'arma (mg, cannon, rocket, artillery, fire, support): decide quale ricerca di danno vale.
 // proj: come si vede il colpo: 'tracer' (immediato), 'shell' (proiettile), 'rocket' (salva di `salvo` razzi ad area),
@@ -62,7 +82,8 @@ export const STRUCTS = {
   bunker: { name: 'Bunker pesante', m: true, tier: 3, w: 2, h: 2, hp: 1800, cost: 320, time: 40, sight: 8, armor: 8, req: 'stBK', desc: 'Difesa corazzata con cannone 75 mm. Gittata 7 caselle.' },
 };
 export const BUILD_ORDER = ['pump', 'factory', 'lab', 'tower', 'depot', 'bunker'];
-export const BUILDER = { hp: 240, speed: 66, cost: 60, time: 12, armor: 1 };
+// I genieri vanno su ruote: sulla strada hanno il moltiplicatore delle ruote (road).
+export const BUILDER = { hp: 240, speed: 66, cost: 60, time: 12, armor: 1, road: 1.35 };
 export const PUMP_RATE = 1.6;
 
 // Ricerche. tier: livello; per avviarne una di livello N+1 servono almeno TIER_GATE ricerche completate di livello N

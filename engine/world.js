@@ -1,13 +1,18 @@
 // Stato della partita, entità, visibilità ed eventi verso il client.
 // Le variabili esportate con `let` sono binding "vivi": chi le importa legge sempre il valore attuale,
 // ma solo questo modulo le riassegna.
-import { TILE, MW, MH, N, P, E, B0, STRUCTS, CHASSIS, PROPS, WEAPONS, DIFF, BUILDER, TECH_BY, TOWER_MG, TOWER_CN, TOWER_CN75, DEFAULT_DESIGNS, missionOf } from './data.js';
+import { TILE, MW, MH, N, P, E, B0, B1, ROAD, STRUCTS, CHASSIS, PROPS, WEAPONS, DIFF, BUILDER, TECH_BY, TOWER_MG, TOWER_CN, TOWER_CN75, DEFAULT_DESIGNS, missionOf } from './data.js';
 import { genMap, missionMap } from './map.js';
+import { MAP_BY, drawnMap } from './maps/index.js';
 import { setupMission } from './mission.js';
+import { formation } from './path.js';
 import { ftile } from './util.js';
 
 export let S = null;
 export let terr = null, deposits = [], depIdx = null, occ = null, vis = null, explored = null;
+// bases: centri dei due comandi della mappa ([P, E]): B0 e B1 sulla mappa generata, quelli del disegno sulle mappe
+// disegnate. hasRoad: la mappa ha strade (solo allora A* tiene conto della velocità sulla strada).
+export let bases = [B0, B1], hasRoad = false;
 export const idx = new Map();
 export const proj = [];
 
@@ -59,6 +64,10 @@ export function techSum(owner, key, family) {
 export const armorBonus = owner => techSum(owner, 'armor');
 export const dmgMul = (owner, family) => 1 + techSum(owner, 'dmg', family);
 export const speedMul = owner => 1 + techSum(owner, 'speed');
+// Moltiplicatore di velocità del mezzo sulla strada (ROAD): quello della propulsione, per i genieri quello delle ruote.
+export const roadMul = u => u.builder ? BUILDER.road : (PROPS[u.d.p].road ?? 1);
+// Centro della base di partenza del lato (casella del centro del comando iniziale).
+export const homeOf = o => bases[o];
 // Arma delle torrette del lato: l'ultima ricerca di torretta completata.
 export function towerWeapon(owner) { const T = S.tech[owner]; return T.twCN75 ? TOWER_CN75 : T.twCN ? TOWER_CN : TOWER_MG; }
 // Statistiche di un progetto. Con owner valgono anche le ricerche di quel lato (corazza, danno, velocità);
@@ -95,13 +104,18 @@ export function armorOf(e) {
 //   mission: indice (0–7) o id di una missione della campagna (MISSIONS); il seme della mappa resta `seed`;
 //   tech: ricerche già completate dal giocatore ({id: true}), portate dalla campagna;
 //   designs: progetti salvati dal giocatore;
-//   autoplay: true = anche il lato del giocatore è guidato dall'IA (simulazioni).
+//   autoplay: true = anche il lato del giocatore è guidato dall'IA (simulazioni);
+//   map: id di una mappa disegnata (MAPS in maps/index.js, per esempio 'latina'), solo in schermaglia; 'casuale' o
+//   niente = la mappa generata dal seme, come sempre. S.map è l'id della mappa disegnata, oppure null.
 // Stato in più: S.mission (id della missione o null), S.objective, S.maxTier (livello massimo del giocatore, null in
 // schermaglia), S.ecfg (configurazione del nemico in missione), S.mapOpts (ritocchi della mappa).
 // Con opts.tech o opts.designs ma senza missione è una schermaglia con quelle ricerche e quei progetti.
 export function newGame(diff, seed, opts) {
   const M = opts && opts.mission != null ? missionOf(opts.mission) : null;
   if (opts && opts.mission != null && !M) throw new Error(`Missione sconosciuta: ${opts.mission}`);
+  const mapId = opts && opts.map != null && opts.map !== 'casuale' ? opts.map : null;
+  if (mapId && !MAP_BY[mapId]) throw new Error(`Mappa sconosciuta: ${mapId}`);
+  if (mapId && M) throw new Error('Le mappe disegnate valgono solo in schermaglia.');
   S = {
     seed, diff, time: 0, nextId: 1, ents: [], res: [600, 600], tech: [{}, {}],
     designs: [{ c: 'L', p: 'W', w: 'MG' }],
@@ -116,10 +130,11 @@ export function newGame(diff, seed, opts) {
     if (!S.designs.length) S.designs = DEFAULT_DESIGNS.map(d => ({ ...d }));
     if (opts.autoplay) S.autoplay = true;
   }
-  S.mission = M ? M.id : null; S.objective = null; S.maxTier = M ? M.maxTier : null;
+  S.mission = M ? M.id : null; S.objective = null; S.maxTier = M ? M.maxTier : null; S.map = mapId;
   if (M) S.mapOpts = M.map || {};
   setupWorld();
   if (M) setupMission(M);
+  else if (mapId) for (const o of [P, E]) skirmishBase(o);
   else {
     for (const o of [P, E]) {
       const m = (x, y) => o === P ? [x, y] : [MW - 1 - x, MH - 1 - y];
@@ -132,12 +147,25 @@ export function newGame(diff, seed, opts) {
   updateFog();
   return S;
 }
+// Partenza della schermaglia su una mappa disegnata: comando nel centro della base, due mezzi davanti (verso la base
+// avversaria) e due genieri di lato, sulle caselle libere più vicine.
+function skirmishBase(o) {
+  const b = bases[o], f = bases[1 - o], dl = Math.hypot(f.x - b.x, f.y - b.y) || 1, fx = (f.x - b.x) / dl, fy = (f.y - b.y) / dl;
+  makeStruct('hq', o, b.x - 1, b.y - 1, true);
+  const place = (k, s, list) => {
+    const tiles = formation(Math.round(b.x + fx * k - fy * s), Math.round(b.y + fy * k + fx * s), list.length, false);
+    list.forEach((d, i) => { const t = tiles[i]; if (t) makeUnit(o, d, (t[0] + 0.5) * TILE, (t[1] + 0.5) * TILE); });
+  };
+  place(3, 0, [{ c: 'L', p: 'W', w: 'MG' }, { c: 'L', p: 'W', w: 'MG' }]);
+  place(0, 3, [null, null]);
+}
 export const validDesign = d => !!d && !!CHASSIS[d.c] && !!PROPS[d.p] && !!WEAPONS[d.w];
 // Configurazione dell'IA di un lato: in schermaglia quella della difficoltà, in missione quella del nemico della
 // missione (S.ecfg); per il giocatore guidato dall'IA i suoi tempi (AI_PLAYER, passati da ai.js).
 export function enemyCfg() { return S.ecfg || DIFF[S.diff]; }
 function setupWorld() {
-  const m = S.mapOpts ? missionMap(S.seed, S.mapOpts) : genMap(S.seed); terr = m.t; deposits = m.deps;
+  const m = S.map ? drawnMap(S.map) : S.mapOpts ? missionMap(S.seed, S.mapOpts) : genMap(S.seed); terr = m.t; deposits = m.deps;
+  bases = m.bases || [B0, B1]; hasRoad = terr.includes(ROAD);
   depIdx = new Int16Array(N).fill(-1); deposits.forEach((d, i) => { depIdx[d.x + d.y * MW] = i; });
   occ = new Int32Array(N); vis = new Uint8Array(N);
   explored = S.explored ? Uint8Array.from(S.explored) : new Uint8Array(N);

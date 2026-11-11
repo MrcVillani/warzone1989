@@ -1,5 +1,5 @@
 // Generazione della mappa: simmetrica rispetto al centro, così i due schieramenti partono alla pari.
-import { MW, MH, N, GROUND, DIRT, WATER, ROCK, FOREST, B0, B1, ENEMY_BASE2 } from './data.js';
+import { MW, MH, N, GROUND, DIRT, WATER, ROCK, FOREST, WALKABLE, B0, B1, ENEMY_BASE2 } from './data.js';
 import { mulberry32, makeNoise } from './util.js';
 
 export function genMap(seed) {
@@ -59,7 +59,7 @@ export function bfsReach(t, sx, sy) {
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= MW || ny >= MH) continue;
       const j = nx + ny * MW; if (r[j]) continue;
-      if (t[j] === GROUND || t[j] === DIRT) { r[j] = 1; q.push(j); }
+      if (WALKABLE[t[j]]) { r[j] = 1; q.push(j); }
     }
   }
   return r;

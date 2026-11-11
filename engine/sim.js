@@ -1,6 +1,6 @@
 // Aggiornamento di mezzi ed edifici e passo di simulazione.
-import { TILE, MW, P, E, DIRT, WATER, STRUCTS, CHASSIS, WEAPONS, TECH_BY, BUNKER_W, PUMP_RATE } from './data.js';
-import { S, terr, emit, ent, makeUnit, canSee, updateFog, speedMul, towerWeapon, techSum, enemyCfg } from './world.js';
+import { TILE, MW, P, E, DIRT, WATER, ROAD, STRUCTS, CHASSIS, WEAPONS, TECH_BY, BUNKER_W, PUMP_RATE } from './data.js';
+import { S, terr, emit, ent, makeUnit, canSee, updateFog, speedMul, roadMul, towerWeapon, techSum, enemyCfg } from './world.js';
 import { passable, nearestFree, pathTo, reachMap, reachableAdj } from './path.js';
 import { setIdle, cmdMove } from './orders.js';
 import { edist, nearestEnemy, aimFire, updProj } from './combat.js';
@@ -21,8 +21,9 @@ export function followPath(u, dt, sm = speedMul(u.owner)) {
   const a = Math.atan2(dy, dx);
   u.ang = turnToward(u.ang, a, 4.5 * dt);
   const al = Math.cos(angDiff(u.ang, a));
-  const onDirt = terr[ftile(u.x) + ftile(u.y) * MW] === DIRT;
-  const sp = u.speed * sm * Math.max(0.25, al) * (onDirt ? 0.92 : 1);
+  // Terra battuta un po' più lenta, strada più veloce secondo la propulsione (roadMul).
+  const here = terr[ftile(u.x) + ftile(u.y) * MW];
+  const sp = u.speed * sm * Math.max(0.25, al) * (here === DIRT ? 0.92 : here === ROAD ? roadMul(u) : 1);
   const st = Math.min(d, sp * dt);
   u.x += dx / d * st; u.y += dy / d * st; u.moving = true;
   if (u.water && terr[ftile(u.x) + ftile(u.y) * MW] === WATER && Math.random() < dt * 14) emit('fx', { k: 'spray', x: u.x - Math.cos(u.ang) * 10, y: u.y - Math.sin(u.ang) * 10 });

@@ -1,5 +1,5 @@
 // Ordini e azioni: li usano sia il giocatore (dal client) sia l'IA nemica.
-import { TILE, MW, MH, P, E, GROUND, DIRT, STRUCTS, TECH, TECH_BY, TIERS, TIER_GATE, UNIT_CAP, BUILDER, WEAPONS } from './data.js';
+import { TILE, MW, MH, P, E, BUILDABLE, STRUCTS, TECH, TECH_BY, TIERS, TIER_GATE, UNIT_CAP, BUILDER, WEAPONS } from './data.js';
 import { S, terr, occ, depIdx, explored, idx, emit, makeStruct, markOcc, dStats, enemyCfg } from './world.js';
 import { pathTo, formation } from './path.js';
 import { ftile } from './util.js';
@@ -40,7 +40,7 @@ export function canPlace(owner, type, tx, ty, margin = 0) {
   for (let y = ty - margin; y < ty + D.h + margin; y++) for (let x = tx - margin; x < tx + D.w + margin; x++) {
     if (x < 0 || y < 0 || x >= MW || y >= MH) return false;
     const i = x + y * MW, v = terr[i];
-    if (v !== GROUND && v !== DIRT) return false;
+    if (!BUILDABLE[v]) return false;
     if (occ[i]) return false;
     const inside = x >= tx && x < tx + D.w && y >= ty && y < ty + D.h;
     if (inside && depIdx[i] >= 0) return false;

@@ -97,6 +97,15 @@ proiettili in volo, che `loadState` rimette nell'array `proj`.
 | `quality.js` | qualità adattiva degli effetti (alta, media, bassa): misura il tempo per fotogramma e regola particelle, tracce e risoluzione della tela; scelta «Effetti» salvata sul dispositivo |
 | `main.js` | collega eventi e moduli, ciclo di gioco, aggancio di test `window.__wz` (anche `fxq()` e `setFx()` per la qualità) |
 
+## Mappe disegnate
+
+`engine/maps/` contiene le mappe disegnate a mano per la schermaglia: ogni mappa è un testo di 64 righe (una lettera
+per terreno, legenda nel file), con le basi dei due lati, i giacimenti e i luoghi principali. `MAPS` elenca le mappe
+per il menu (`casuale`, `latina`); `newGame(diff, seed, { map: 'latina' })` avvia la schermaglia su una mappa disegnata
+e `S.map` la ricorda nel salvataggio. Due terreni valgono solo qui: `CITY` (isolato, non si attraversa né si
+costruisce) e `ROAD` (strada: si costruisce e i mezzi vanno più veloci secondo `PROPS[p].road`; A* preferisce le
+strade). `homeOf(o)` dà il centro della base di partenza di un lato.
+
 ## Campagna
 
 `MISSIONS` in `engine/data.js` descrive le 8 missioni (briefing, obiettivo, livello massimo, seme e ritocchi della

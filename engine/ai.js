@@ -1,8 +1,8 @@
 // IA del Direttorio Ferreo: economia, ricerca, edifici, produzione e attacchi a ondate.
 // La stessa IA può guidare il lato del giocatore (aiTick(P), con S.autoplay): stato in S.aiP, tempi in AI_PLAYER;
 // in missione persegue l'obiettivo (in «tieni le pompe» e «resisti» difende e non attacca).
-import { TILE, MW, P, E, B0, B1, STRUCTS, CHASSIS, PROPS, WEAPONS, TECH_BY, AI_TECH, AI_TECH_P, AI_STALL, AI_ARMY, AI_RECALL, AI_PLAYER, BUILDER, UNIT_CAP } from './data.js';
-import { S, occ, idx, deposits, explored, emit, dStats, armorOf, enemyCfg, makeUnit } from './world.js';
+import { TILE, MW, P, E, STRUCTS, CHASSIS, PROPS, WEAPONS, TECH_BY, AI_TECH, AI_TECH_P, AI_STALL, AI_ARMY, AI_RECALL, AI_PLAYER, BUILDER, UNIT_CAP } from './data.js';
+import { S, occ, idx, deposits, explored, emit, dStats, armorOf, enemyCfg, makeUnit, homeOf } from './world.js';
 import { passable, nearestFree, reachMap, reachableAdj, formation } from './path.js';
 import { cmdMove, cmdBuild, canPlace, placeStruct, enqueue, techAvail, startResearch, demolish, unitCount } from './orders.js';
 import { ftile, gridRef } from './util.js';
@@ -171,12 +171,13 @@ export function aiTick(o = E) {
   const mine = S.ents.filter(e => e.owner === o && !e.dead);
   const structs = mine.filter(e => e.kind === 'struct'), units = mine.filter(e => e.kind === 'unit');
   const hqs = structs.filter(s => s.type === 'hq'), hq = hqs[0];
-  const home = o === E ? B1 : B0;
+  const home = homeOf(o);
   const base = hq ? { x: hq.tx + 1, y: hq.ty + 1 } : { x: home.x, y: home.y };
-  // Verso dove spingersi: per il nemico la base del giocatore (B0); per il giocatore il comando nemico più vicino.
-  let toward = B0;
+  // Verso dove spingersi: per il nemico la base di partenza del giocatore (homeOf, B0 sulla mappa generata); per il
+  // giocatore il comando nemico più vicino.
+  let toward = homeOf(P);
   if (o === P) {
-    toward = B1; let bd = 1e18;
+    toward = homeOf(E); let bd = 1e18;
     for (const e of S.ents) if (!e.dead && e.owner === foe && e.type === 'hq') { const d = Math.hypot(e.tx + 1 - base.x, e.ty + 1 - base.y); if (d < bd) { bd = d; toward = { x: e.tx + 1, y: e.ty + 1 }; } }
   }
   if (waves === 'edge' && S.time >= ai.nextAttack) edgeWave(o, ai, D);

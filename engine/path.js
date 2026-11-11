@@ -1,12 +1,12 @@
 // Passabilità e percorsi (A* su griglia a 8 direzioni, senza tagliare gli angoli).
-import { MW, MH, N, GROUND, DIRT, WATER } from './data.js';
-import { terr, occ } from './world.js';
+import { MW, MH, N, WATER, ROAD, WALKABLE } from './data.js';
+import { terr, occ, hasRoad, roadMul } from './world.js';
 import { ftile } from './util.js';
 
 export function passable(x, y, water) {
   if (x < 0 || y < 0 || x >= MW || y >= MH) return false;
   const i = x + y * MW; if (occ[i]) return false;
-  const v = terr[i]; return v === GROUND || v === DIRT || (water && v === WATER);
+  const v = terr[i]; return WALKABLE[v] === 1 || (!!water && v === WATER);
 }
 export function nearestFree(tx, ty, water, maxR = 12) {
   for (let r = 0; r <= maxR; r++) {
@@ -35,12 +35,19 @@ const DIRS = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.414], [1, -
 
 // Restituisce le caselle da attraversare (esclusa quella di partenza). Se la meta non è raggiungibile,
 // porta il più vicino possibile; oltre 5000 espansioni si ferma alla casella migliore trovata.
-export function findPath(sx, sy, gx, gy, water) {
+// road: moltiplicatore di velocità del mezzo sulla strada (roadMul): entrare in una casella di strada costa 1/road,
+// così il percorso preferisce le strade quando fanno guadagnare tempo. Sulle mappe senza strade (hasRoad falso) il
+// calcolo è quello di sempre.
+export function findPath(sx, sy, gx, gy, water, road = 1) {
   if (!passable(gx, gy, water)) { const f = nearestFree(gx, gy, water, 10); if (!f) return null; gx = f[0]; gy = f[1]; }
   if (sx === gx && sy === gy) return [];
   stampV++; hI.length = 0; hF.length = 0;
   const s = sx + sy * MW, goal = gx + gy * MW;
-  const h = (x, y) => { const dx = Math.abs(x - gx), dy = Math.abs(y - gy); return Math.max(dx, dy) + 0.414 * Math.min(dx, dy); };
+  const rk = hasRoad && road > 1 ? 1 / road : 1;
+  // Con le strade la stima si riduce dello stesso fattore, così resta ottimistica e il percorso più rapido si trova.
+  const h = rk === 1
+    ? (x, y) => { const dx = Math.abs(x - gx), dy = Math.abs(y - gy); return Math.max(dx, dy) + 0.414 * Math.min(dx, dy); }
+    : (x, y) => { const dx = Math.abs(x - gx), dy = Math.abs(y - gy); return (Math.max(dx, dy) + 0.414 * Math.min(dx, dy)) * rk; };
   stamp[s] = stampV; gS[s] = 0; from[s] = -1; hpush(s, h(sx, sy));
   let best = s, bestH = h(sx, sy), exp = 0;
   while (hI.length) {
@@ -54,7 +61,7 @@ export function findPath(sx, sy, gx, gy, water) {
       if (!passable(nx, ny, water)) continue;
       if (dx && dy && (!passable(cx + dx, cy, water) || !passable(cx, cy + dy, water))) continue;
       const n = nx + ny * MW; if (closed[n] === stampV) continue;
-      const gg = gS[c] + cost;
+      const gg = gS[c] + (rk !== 1 && terr[n] === ROAD ? cost * rk : cost);
       if (stamp[n] !== stampV || gg < gS[n]) { stamp[n] = stampV; gS[n] = gg; from[n] = c; hpush(n, gg + h(nx, ny)); }
     }
   }
@@ -68,7 +75,7 @@ export function findPath(sx, sy, gx, gy, water) {
 // `block` è l'indice di una casella da trattare come occupata (per esempio il giacimento di una futura pompa).
 export function reachMap(starts, water, block = -1) {
   const r = new Uint16Array(N), ok = new Uint8Array(N), q = new Int32Array(N);
-  for (let i = 0; i < N; i++) { const v = terr[i]; ok[i] = !occ[i] && (v === GROUND || v === DIRT || (water && v === WATER)) ? 1 : 0; }
+  for (let i = 0; i < N; i++) { const v = terr[i]; ok[i] = !occ[i] && (WALKABLE[v] === 1 || (water && v === WATER)) ? 1 : 0; }
   if (block >= 0 && block < N) ok[block] = 0;
   let qh = 0, qt = 0;
   for (const [x, y] of starts) {
@@ -101,7 +108,7 @@ export function reachableAdj(tx, ty, w, h, R) {
   return out;
 }
 export function pathTo(u, wx, wy) {
-  const p = findPath(ftile(u.x), ftile(u.y), ftile(wx), ftile(wy), u.water);
+  const p = findPath(ftile(u.x), ftile(u.y), ftile(wx), ftile(wy), u.water, roadMul(u));
   u.path = p && p.length ? p : null; u.pi = 0; u.stk = 0; u.sx0 = u.x; u.sy0 = u.y;
 }
 // Caselle libere vicine a un punto, per disporre un gruppo senza ammassarlo.
