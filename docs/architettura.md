@@ -85,7 +85,17 @@ proiettili in volo, che `loadState` rimette nell'array `proj`.
 | `index.html` | struttura della pagina (barra, mappa, pannello, copertina) |
 | `style.css` | stile e token di colore |
 | `state.js` | stato del solo client: selezione, camera, scheda attiva, effetti |
-| `render.js` | terreno, edifici, mezzi, effetti, nebbia, minimappa |
+| `render.js` | coordina il fotogramma: visuale, ordine degli strati, nebbia, minimappa, scossa dello schermo (spegnibile, spenta con «riduci movimento» e in «minima») |
+| `look.js` | costanti dell'aspetto (palette dei materiali, luce, colori dei lati) |
+| `terrain.js` | tela unica della mappa cotta a pezzi di 8×8 caselle: avvia il worker del terreno da un Blob e, se mancano Worker o OffscreenCanvas, cuoce sul filo principale un pezzo per fotogramma |
+| `terrain-bake.js` | cottura del terreno «A+» (materiali sfumati, rilievo illuminato, erba, rive, massi, sterrati, alberi e, per le mappe disegnate, città e strade), comune a worker e filo principale |
+| `terrain-worker.js` | Web Worker del terreno; `scripts/build.mjs` lo impacchetta a parte e lo mette nel gioco come testo (`__TERRAIN_WORKER__`) |
+| `decals.js` | segni che restano: crateri e bruciature timbrati sul terreno (tetto 220), impronte dei cingoli su una tela a metà risoluzione che sbiadisce |
+| `vehicles.js` | sagome dei mezzi cotte per direzione (cupola, portelli, cingoli a maglie, insegne, filo di luce, ombra), beccheggio, torretta verso il bersaglio, scarico, bossoli, relitti in fiamme |
+| `structs.js` | edifici: tetti in lamiera e cemento, camino che fuma, luci di segnalazione, ombra |
+| `atmos.js` | acqua animata (increspature, riflesso, cerchi e schizzi), ombre delle nuvole, alberi che ondeggiano e si piegano all'onda d'urto, correzione colore |
+| `light.js` | aloni additivi di esplosioni e incendi; di notte (`S.night`) tela della luce a 1/4 con fari, lampade, finestre e contorno del colore del lato sui mezzi |
+| `effects.js` | effetti: esplosioni a fasi (lampo, palla di fuoco, onda d'urto, detriti, fungo, cratere), scintille, torretta sbalzata, crollo degli edifici a fasi |
 | `input.js` | selezione, ordini, scorciatoie; su touch un dito scorre la mappa con inerzia, due dita zoomano, tocco con aggancio, doppio tocco, tocco lungo con riquadro; squadre 1–4 condivise con Ctrl+1–9 |
 | `ui.js` | pannello (Costruisci, Produzione, Ricerca, Progetta), avvisi, barra |
 | `screens.js` | menu principale (Campagna, Schermaglia), elenco missioni, briefing, indicatore dell'obiettivo, rapporti di fine missione e di schermaglia, schermata finale, conferma d'uscita |
@@ -93,11 +103,11 @@ proiettili in volo, che `loadState` rimette nell'array `proj`.
 | `audio.js` | suoni sintetizzati con Web Audio, posizionati rispetto alla visuale, con limite di voci; volume e acceso/spento salvati sul dispositivo |
 | `music.js` | colonna sonora originale generata in tempo reale: strati calma, tensione e battaglia sullo stesso orologio e sulla stessa armonia, con dissolvenze guidate dall'intensità dei combattimenti; temi del menu, vittoria, sconfitta e cambio di fase; un profilo per ogni missione della campagna (`musicMission(id, fase)`: tonalità, tempo, variante del tema, strumenti), frase «Valle liberata» alla fine della campagna; scala di epicità 1–8 per missione (`epic`, strati che si sommano gradino per gradino), motivo della Brigata (`BRIGATA`) che si completa lungo la campagna e culmine a orchestra piena dal gradino 6 negli scontri più intensi, entro un limite di voci (`MUSIC_LIMITS`); volume e acceso/spento salvati sul dispositivo |
 | `urban.js` | disegno di città (isolati a corte, tetti, poderi), strade con raccordi e mezzeria, ponti, nomi dei luoghi delle mappe disegnate |
-| `prefs.js` | scelte ricordate sul dispositivo: mappa della schermaglia (`wz.mappa`) e nomi dei luoghi (`wz.luoghi`) |
+| `prefs.js` | scelte ricordate sul dispositivo: mappa della schermaglia (`wz.mappa`), nomi dei luoghi (`wz.luoghi`) e scossa dello schermo (`wz.scossa`) |
 | `anim.js` | animazioni del client: assetto e rinculo dei mezzi, porte delle fabbriche, cantiere con gru, palla di fuoco, macerie degli edifici; rispetta qualità adattiva e «riduci movimento» |
 | `alerts.js` | posizione degli avvisi toccabili, pulsante «Allarme» (ultimi scontri), frecce ai bordi per gli scontri fuori visuale |
-| `quality.js` | qualità adattiva degli effetti (alta, media, bassa): misura il tempo per fotogramma e regola particelle, tracce e risoluzione della tela; scelta «Effetti» salvata sul dispositivo |
-| `main.js` | collega eventi e moduli, ciclo di gioco, aggancio di test `window.__wz` (anche `fxq()` e `setFx()` per la qualità) |
+| `quality.js` | qualità degli effetti a quattro livelli (alta, media, bassa, minima) e «auto» adattiva: misura il tempo per fotogramma e regola particelle, animazioni, luce e risoluzione della tela; con più di 120 mezzi «auto» parte da «bassa» e può scendere a «minima», che costa quanto la «bassa» di prima; scelta «Effetti» salvata sul dispositivo |
+| `main.js` | collega eventi e moduli, ciclo di gioco, aggancio di test `window.__wz` (anche `fxq()` e `setFx()` per la qualità, `gfx()` per come si cuoce il terreno e se la visuale è pronta) |
 
 ## Mappe disegnate
 
@@ -127,6 +137,9 @@ bilanciamento in [`bilanciamento.md`](bilanciamento.md).
 
 - `dist/index.html`: documento completo, per browser e per l'app Android;
 - `dist/artifact.html`: frammento per l'anteprima pubblicata su claude.ai.
+
+Il worker del terreno (`client/terrain-worker.js`) si impacchetta a parte e finisce nel file come testo, così il gioco
+resta un solo file anche con il Web Worker.
 
 ## Colonna sonora
 

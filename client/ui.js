@@ -4,7 +4,7 @@ import {
   S, ent, newGame, dStats, designName, armorOf, enqueue, cancelQueued, startResearch, pumpRate,
   cmdStop, ftile, gridRef, homeOf, tierAvail, tierDone, tierCap, techBlockReason, towerWeapon, speedMul,
 } from '../engine/index.js';
-import { ui, cam, view, fxs, FACTION, PAL } from './state.js';
+import { ui, cam, view, fxs, FACTION, PAL, reducedMotion } from './state.js';
 import { selEnts, selUnits, setSel } from './selection.js';
 import { centerOn, screenToWorld, drawVehicle, vehicleExtent, hpColor } from './render.js';
 import { soundOn, setSound, getVolume, setVolume, onAudioChange, uiSfx } from './audio.js';
@@ -15,7 +15,7 @@ import { nextAlarm, alarmList, initAlerts, resetAlerts } from './alerts.js';
 import { layout } from './layout.js';
 import { paneTab, toggleDrawer, openDrawer, syncDrawer, startPlacing, updatePlacebar } from './drawer.js';
 import { tilesFor, paintTiles, freeBuilders } from './tiles.js';
-import { mapOpts, placesOf, placesOn, setPlaces } from './prefs.js';
+import { mapOpts, placesOf, placesOn, setPlaces, shakeOn, setShake } from './prefs.js';
 
 const $ = id => document.getElementById(id);
 export const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -411,8 +411,8 @@ function syncMusic() {
   const vv = $('ovMVolV'); if (vv) vv.textContent = Math.round(getMusicVolume() * 100) + '%';
 }
 
-// Qualità degli effetti: automatica (si adatta al dispositivo), sempre alta o sempre bassa.
-const FX_OPTS = [['auto', 'Automatici'], ['alta', 'Alti'], ['bassa', 'Bassi']];
+// Qualità della grafica: automatica (si adatta al dispositivo) o fissa su uno dei quattro livelli.
+const FX_OPTS = [['auto', 'Automatici'], ['alta', 'Alti'], ['media', 'Medi'], ['bassa', 'Bassi'], ['minima', 'Minimi']];
 function syncFx() {
   document.querySelectorAll('[data-fx]').forEach(b => { const on = b.dataset.fx === fxq.pref; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
   const v = $('ovFxV'); if (v) v.textContent = fxq.pref === 'auto' ? `ora ${fxq.q.name}` : '';
@@ -455,6 +455,13 @@ const CONTROLS_B = `<p class="sec ctlh">Barra e cassetto</p><dl class="controls"
 const CREDITS = `<p class="sec ctlh">Mappe</p><dl class="controls">
   <div><dt>Latina</dt><dd>ispirata alla geografia della città; disegnata a mano</dd></div>
 </dl>`;
+// Scossa dello schermo sulle esplosioni grandi: accesa o spenta (ricordata sul dispositivo). Con «riduci movimento» del
+// sistema e con la grafica minima non c'è comunque: lo dice la nota accanto.
+function syncShake() {
+  const b = $('ovShake'), on = shakeOn(); if (!b) return;
+  b.textContent = on ? 'Accesa' : 'Spenta'; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  const n = $('ovShakeN'); if (n) n.textContent = reducedMotion() ? 'spenta da «riduci movimento»' : on && fxq.q.name === 'minima' ? 'spenta con la grafica minima' : '';
+}
 // Nomi dei luoghi sulla mappa disegnata: acceso o spento (ricordato sul dispositivo).
 function syncPlaces() {
   const b = $('ovPlaces'), on = placesOn(); if (!b) return;
@@ -478,6 +485,7 @@ export function showHelp(back) {
   <div class="audioset"><span class="lbl">Musica</span><button class="btn" id="ovMusic" aria-pressed="true">Accesa</button>
     <label for="ovMVol">Volume</label><input type="range" id="ovMVol" min="0" max="100" step="5" aria-label="Volume della musica"><output id="ovMVolV">50%</output></div>
   <div class="audioset" role="group" aria-label="Qualità degli effetti"><span class="lbl">Effetti</span>${FX_OPTS.map(([k, l]) => `<button class="btn" data-fx="${k}">${l}</button>`).join('')}<output id="ovFxV"></output></div>
+  <div class="audioset"><span class="lbl">Scossa</span><button class="btn" id="ovShake" aria-pressed="true">Accesa</button><span id="ovShakeN"></span></div>
   ${placesOf(S && S.map) ? '<div class="audioset"><span class="lbl">Luoghi</span><button class="btn" id="ovPlaces" aria-pressed="true">Visibili</button><span>nomi sulla mappa, da vicino</span></div>' : ''}
   ${CONTROLS}${layout.b ? CONTROLS_B : ''}${CREDITS}<div class="actions"><button class="primary" id="ovClose">${back ? 'Torna al menu' : 'Torna alla partita'}</button></div></div>`;
   $('ovSound').addEventListener('click', () => setSound(!soundOn()));
@@ -486,8 +494,10 @@ export function showHelp(back) {
   $('ovMusic').addEventListener('click', () => setMusic(!musicOn()));
   $('ovMVol').addEventListener('input', e => setMusicVolume(e.target.value / 100));
   syncMusic();
-  o.querySelectorAll('[data-fx]').forEach(b => b.addEventListener('click', () => { setPref(b.dataset.fx); syncFx(); }));
+  o.querySelectorAll('[data-fx]').forEach(b => b.addEventListener('click', () => { setPref(b.dataset.fx); syncFx(); syncShake(); }));
   syncFx();
+  $('ovShake').addEventListener('click', () => { setShake(!shakeOn()); syncShake(); });
+  syncShake();
   const pl = $('ovPlaces');
   if (pl) { pl.addEventListener('click', () => { setPlaces(!placesOn()); syncPlaces(); }); syncPlaces(); }
   $('ovClose').addEventListener('click', closeHelp); $('ovClose').focus();

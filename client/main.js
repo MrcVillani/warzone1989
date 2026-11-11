@@ -1,10 +1,11 @@
 // Avvio del client: collega gli eventi del motore al disegno e all'interfaccia, poi fa girare il ciclo.
 import { P, S, ent, onEvent, step, loadState, serialize } from '../engine/index.js';
 import { ui, fxs } from './state.js';
-import { initRender, resize, renderTerrain, updateFogImage, spawnFx, updParts, render, renderMini, resetFx, unitSpawned, structPlaced, structBuilt } from './render.js';
+import { initRender, resize, renderTerrain, updateFogImage, spawnFx, updParts, render, renderMini, resetFx, unitSpawned, structPlaced, structBuilt, renderState } from './render.js';
 import { initAudio, fxSound, uiSfx, audioState, onAudioReady, heard } from './audio.js';
 import { attachMusic, musicMode, musicMission, musicHit, musicDuck, musicState } from './music.js';
-import { frameTick, onQualityChange, qualityState, setPref } from './quality.js';
+import { fxq, frameTick, unitsTick, onQualityChange, qualityState, setPref } from './quality.js';
+const fxPref = () => fxq.pref;
 import { initInput, camScroll } from './input.js';
 import { initUI, renderPanel, updateBar, updateSelCount, toast, startGame, randomSeed } from './ui.js';
 import { alertFx, alertPing, alertBuilt, alertToast, updateArrows, resetAlerts } from './alerts.js';
@@ -69,7 +70,6 @@ function musicFor() {
 }
 
 let last = performance.now(), uiT = 0, mmT = 0;
-let cntT = 0;
 // Un errore in una parte del fotogramma non deve fermare il ciclo: la parte salta quel fotogramma e le altre
 // vanno avanti. L'errore resta visibile: si segnala come errore non gestito (console e test end-to-end),
 // una sola volta per tipo, così un errore che si ripete non riempie la console a ogni fotogramma.
@@ -90,15 +90,15 @@ function frame(now) {
   guard('effetti', () => { if (S && (!ui.paused || ui.overlay === 'ended')) updParts(dt); });
   if (ui.sel.length && ui.sel.some(id => !ent(id))) ui.sel = ui.sel.filter(id => ent(id));
   guard('camera', () => camScroll(dt));
+  // qualità adattiva: conta i mezzi in campo prima di disegnare (una battaglia grande parte subito dal livello giusto)
+  // e misura il fotogramma solo a partita in corso
+  const running = !!S && !ui.paused && !ui.overlay && S.phase === 'play';
+  if (running && fxPref() === 'auto') { let units = 0; for (const e of S.ents) if (e.kind === 'unit' && !e.dead) units++; guard('qualità', () => unitsTick(units)); }
   guard('disegno', () => render(now));
   guard('frecce', () => { updateArrows(); updateSelCount(); updatePlacebar(); });
   if ((mmT -= dt) <= 0) { mmT = 0.1; guard('minimappa', renderMini); }
   if ((uiT -= dt) <= 0) { uiT = 0.2; guard('pannello', () => { renderPanel(false); updateBar(); if (S && S.timeLimit) limitText(); }); guard('musica', () => { const m = musicFor(); if (m) { musicMission(S && S.mission, S && S.objective && S.objective.stage); musicMode(m); } }); }
-  // qualità adattiva: conta i mezzi in campo due volte al secondo e misura il fotogramma solo a partita in corso
-  const running = !!S && !ui.paused && !ui.overlay && S.phase === 'play';
-  let units = null;
-  if (running && (cntT -= dt) <= 0) { cntT = 0.5; units = 0; for (const e of S.ents) if (e.kind === 'unit' && !e.dead) units++; }
-  if (running) guard('qualità', () => frameTick(iv, performance.now() - t0, units));
+  if (running) guard('qualità', () => frameTick(iv, performance.now() - t0, null));
 }
 
 function start(data) {
@@ -130,9 +130,10 @@ function start(data) {
   requestAnimationFrame(frame);
 }
 
-// Aggancio per i test end-to-end (Playwright): permette di avanzare la simulazione senza aspettare.
+// Aggancio per i test end-to-end (Playwright): permette di avanzare la simulazione senza aspettare; gfx() dice come
+// si sta cuocendo il terreno (worker o filo principale) e se la visuale è pronta.
 import * as engine from '../engine/index.js';
 import { cam } from './state.js';
-window.__wz = { engine, ui, cam, fxs, get S() { return S; }, step: dt => step(dt), P, audio: audioState, music: musicState, fxq: qualityState, setFx: setPref };
+window.__wz = { engine, ui, cam, fxs, get S() { return S; }, step: dt => step(dt), P, audio: audioState, music: musicState, fxq: qualityState, setFx: setPref, gfx: renderState };
 
 window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});

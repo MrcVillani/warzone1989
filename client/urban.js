@@ -1,7 +1,10 @@
-// Città e strade delle mappe disegnate (terreni CITY e ROAD): asfalto con margini e segnaletica tenue, ponti sui canali,
-// isolati con tetti di tegole e cortili, poderi nei campi; più i nomi dei luoghi sopra la mappa.
-// Strade e isolati si disegnano una volta sola nella tela del terreno (renderTerrain): il costo per fotogramma non
-// cambia e la qualità adattiva non c'entra. I nomi dei luoghi si disegnano a ogni fotogramma, in coordinate dello schermo.
+// Città e strade delle mappe disegnate (terreni CITY e ROAD), nello stile «Rilievo» del terreno: asfalto con grana,
+// crepe, solchi lasciati dalle ruote, margini e segnaletica tenue, ponti sui canali; isolati con tetti di tegole
+// illuminati da nord-ovest, cortili alberati, poderi nei campi; più i nomi dei luoghi sopra la mappa.
+// Strade e isolati si cuociono una volta sola nei pezzi di terreno (terrain-bake.js, anche dentro il Web Worker: qui
+// niente DOM, le tele si creano con mk(w, h)): il costo per fotogramma non cambia. Ogni funzione di disegno riceve il
+// riquadro di caselle del pezzo (rect: tx0, ty0, tx1, ty1, estremi esclusi) e disegna solo ciò che lo tocca.
+// I nomi dei luoghi si disegnano a ogni fotogramma, in coordinate dello schermo.
 // Solo disegno: passabilità e piazzamento restano del motore.
 import { TILE, MW, MH, GROUND, DIRT, WATER, FOREST, CITY, ROAD, mulberry32, clamp } from '../engine/index.js';
 
@@ -9,8 +12,8 @@ const T = TILE;
 const inMap = (x, y) => x >= 0 && y >= 0 && x < MW && y < MH;
 // Terreno della casella; fuori mappa vale quello della casella di bordo più vicina (le strade escono dal bordo).
 const tAt = (terr, x, y) => terr[clamp(x, 0, MW - 1) + clamp(y, 0, MH - 1) * MW];
-const canvas = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
 const free = c => { c.width = c.height = 0; };
+const touches = (rect, x0, y0, x1, y1) => x1 > rect.tx0 && x0 < rect.tx1 && y1 > rect.ty0 && y0 < rect.ty1;
 // Numero pseudocasuale stabile in [0, 1) da tre interi (grana dell'asfalto, varietà dei tetti).
 const hash = (a, b, c) => { let h = (a * 374761393 + b * 668265263 + c * 2147483647) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
 
@@ -18,14 +21,14 @@ const hash = (a, b, c) => { let h = (a * 374761393 + b * 668265263 + c * 2147483
 
 // Colori della tela (non CSS: sono pixel del terreno come l'erba e l'acqua). Segnaletica qui, asfalto e ponti in RGB più giù.
 const ROAD_COL = { dash: 'rgba(232,220,170,0.3)' };
-const CHUNK = 16, PAD = 8;
+const CHUNK = 8, PAD = 8;
 
 // Strade: asfalto (con raccordi diagonali sulle scalinate di caselle), margini, linea di mezzeria tratteggiata sui
 // tratti regolari, ponti dove la strada passa sull'acqua (parapetto e ombra sull'acqua).
 // isDep(i): la casella i è un giacimento (niente raccordi lì).
-export function drawRoads(g, terr, isDep) {
+export function drawRoads(g, terr, isDep, mk, rect) {
   if (!terr.includes(ROAD)) return;
-  for (let cy = 0; cy < MH; cy += CHUNK) for (let cx = 0; cx < MW; cx += CHUNK) roadChunk(g, terr, isDep, cx, cy);
+  for (let cy = 0; cy < MH; cy += CHUNK) for (let cx = 0; cx < MW; cx += CHUNK) if (touches(rect, cx, cy, cx + CHUNK, cy + CHUNK)) roadChunk(g, terr, isDep, cx, cy, mk);
   drawCenterLines(g, terr);
 }
 
@@ -48,7 +51,7 @@ const RGB = {
 // accelerazione grafica e con poca memoria). Copertura della strada (con i raccordi sfumati sul bordo), distanza dal
 // bordo (metrica 3-4, quasi euclidea), poi colore: ciglio scuro, asfalto con grana, margine chiaro; nella zona dei ponti
 // parapetto al posto del margine e ombra sull'acqua.
-function roadChunk(g, terr, isDep, tx0, ty0) {
+function roadChunk(g, terr, isDep, tx0, ty0, mk) {
   let any = false;
   for (let y = ty0 - 1; y <= ty0 + CHUNK && !any; y++) for (let x = tx0 - 1; x <= tx0 + CHUNK; x++) if (tAt(terr, x, y) === ROAD) { any = true; break; }
   if (!any) return;
@@ -103,7 +106,13 @@ function roadChunk(g, terr, isDep, tx0, ty0) {
     const gx = wx / 16, gy = wy / 16, ix = Math.floor(gx), iy = Math.floor(gy), fx = gx - ix, fy = gy - iy;
     const nv = (hash(ix, iy, 9) * (1 - fx) + hash(ix + 1, iy, 9) * fx) * (1 - fy) + (hash(ix, iy + 1, 9) * (1 - fx) + hash(ix + 1, iy + 1, 9) * fx) * fy;
     const sp = hash(wx, wy, 4);
-    const f = (1 + (nv - 0.5) * 0.12) * (sp < 0.05 ? 0.8 : sp > 0.975 ? 1.13 : 1);
+    let f = (1 + (nv - 0.5) * 0.12) * (sp < 0.05 ? 0.8 : sp > 0.975 ? 1.13 : 1);
+    // solchi delle ruote: due fasce più scure a distanza fissa da ogni bordo, interrotte qua e là dal rumore
+    if (!zone[p] && dist > 11 && dist < 19) f *= 1 - 0.09 * Math.sin((dist - 11) / 8 * Math.PI) * (0.6 + nv * 0.8);
+    // crepe sottili e rattoppi più scuri
+    const cg = hash(Math.floor(wx / 3), Math.floor(wy / 3), 7);
+    if (cg > 0.992 && dist > 5) f *= 0.72;
+    if (nv > 0.78 && hash(ix, iy, 11) > 0.6) f *= 0.9;
     c[0] = RGB.asphalt[0] * f; c[1] = RGB.asphalt[1] * f; c[2] = RGB.asphalt[2] * f;
     if (zone[p] && dist <= 3) mix(c, RGB.parapet, 1);
     else if (zone[p] && dist <= 4.2) mix(c, RGB.parapetDark, 0.6);
@@ -111,7 +120,7 @@ function roadChunk(g, terr, isDep, tx0, ty0) {
     else if (dist > 3.5 && dist <= 4.8) mix(c, RGB.margin, 0.2);
     D[o] = c[0]; D[o + 1] = c[1]; D[o + 2] = c[2]; D[o + 3] = cov[p] * 255;
   }
-  const tmp = canvas(n, n); tmp.getContext('2d').putImageData(img, 0, 0);
+  const tmp = mk(n, n); tmp.getContext('2d').putImageData(img, 0, 0);
   g.drawImage(tmp, PAD, PAD, CHUNK * T, CHUNK * T, tx0 * T, ty0 * T, CHUNK * T, CHUNK * T);
   free(tmp);
 }
@@ -164,9 +173,11 @@ const SH_X = 3, SH_Y = 4, DEPTH = 13, WALK_W = 3;
 
 // Isolati: componenti di caselle CITY collegate per lato. Quelli di almeno 3 caselle sono isolati a corte (marciapiede,
 // corpo di fabbrica lungo il perimetro, cortile dentro); quelli di 1–2 caselle sono poderi (aia, casa, fienile).
-export function drawCity(g, terr, seed) {
+// Ogni isolato ha i suoi numeri casuali (dal seme e dalla prima casella): è uguale in tutti i pezzi che tocca.
+// tree(g, x, y, r): chioma di un albero nello stile del terreno.
+export function drawCity(g, terr, seed, mk, rect, tree) {
   if (!terr.includes(CITY)) return;
-  const seen = new Uint8Array(MW * MH), r = mulberry32(seed * 17 + 5);
+  const seen = new Uint8Array(MW * MH);
   for (let i = 0; i < MW * MH; i++) {
     if (terr[i] !== CITY || seen[i]) continue;
     const tiles = [], q = [i]; seen[i] = 1;
@@ -178,7 +189,9 @@ export function drawCity(g, terr, seed) {
         if (inMap(nx, ny) && terr[k] === CITY && !seen[k]) { seen[k] = 1; q.push(k); }
       }
     }
-    drawBlock(g, tiles, r);
+    let x0 = MW, y0 = MH, x1 = 0, y1 = 0;
+    for (const j of tiles) { const x = j % MW, y = (j / MW) | 0; x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+    if (touches(rect, x0 - 1, y0 - 1, x1 + 2, y1 + 2)) drawBlock(g, tiles, mulberry32((seed * 17 + 5 + i * 7919) >>> 0), mk, tree);
   }
 }
 
@@ -196,7 +209,7 @@ function distLinf(m, W, H) {
   return d;
 }
 
-function drawBlock(g, tiles, r) {
+function drawBlock(g, tiles, r, mk, tree) {
   let tx0 = MW, ty0 = MH, tx1 = 0, ty1 = 0;
   for (const j of tiles) { const x = j % MW, y = (j / MW) | 0; tx0 = Math.min(tx0, x); ty0 = Math.min(ty0, y); tx1 = Math.max(tx1, x); ty1 = Math.max(ty1, y); }
   const P = 6, W = (tx1 - tx0 + 1) * T + 2 * P, H = (ty1 - ty0 + 1) * T + 2 * P, ox = tx0 * T - P, oy = ty0 * T - P;
@@ -276,18 +289,14 @@ function drawBlock(g, tiles, r) {
     const p = x + y * W; if (!inC[p] || isRoof(x, y)) continue;
     if (!inC[p - 1] || !inC[p + 1] || !inC[p - W] || !inC[p + W]) { const o = p * 4; D[o] *= 0.8; D[o + 1] *= 0.8; D[o + 2] *= 0.8; }
   }
-  const c = canvas(W, H); c.getContext('2d').putImageData(img, 0, 0);
+  const c = mk(W, H); c.getContext('2d').putImageData(img, 0, 0);
   g.drawImage(c, ox, oy); free(c);
-  decorate(g, r, { small, flat, q, W, H, ox, oy, extra });
+  decorate(g, r, { small, flat, q, W, H, ox, oy, extra }, tree);
 }
 // Dettagli disegnati sopra: alberi nei cortili grandi, volumi tecnici sui tetti piani, covone e alberi nei poderi.
-function decorate(g, r, b) {
+function decorate(g, r, b, drawTree) {
   const { small, flat, q, W, H, ox, oy } = b;
-  const tree = (x, y, rr) => {
-    g.fillStyle = 'rgba(0,0,0,0.3)'; g.beginPath(); g.arc(x + 2.5, y + 3, rr, 0, 7); g.fill();
-    g.fillStyle = `hsl(${92 + r() * 14},${26 + r() * 8}%,${21 + r() * 6}%)`; g.beginPath(); g.arc(x, y, rr, 0, 7); g.fill();
-    g.fillStyle = 'rgba(190,210,140,0.14)'; g.beginPath(); g.arc(x - rr * 0.3, y - rr * 0.3, rr * 0.5, 0, 7); g.fill();
-  };
+  const tree = (x, y, rr) => drawTree(g, x, y, rr, r());
   if (small) {
     // un albero accanto alla casa, nell'aia
     for (const e of b.extra) {
@@ -313,6 +322,7 @@ function decorate(g, r, b) {
       const w = 3 + Math.floor(r() * 3), h = 3 + Math.floor(r() * 3), px = x + ox - w / 2, py = y + oy - h / 2;
       g.fillStyle = 'rgba(0,0,0,0.28)'; g.fillRect(px + 1.5, py + 2, w, h);
       g.fillStyle = 'rgba(205,198,178,0.9)'; g.fillRect(px, py, w, h);
+      g.fillStyle = 'rgba(255,250,235,0.35)'; g.fillRect(px, py, w, 0.8); g.fillRect(px, py, 0.8, h);
     } else if (r() < 0.75) tree(x + ox, y + oy, 4 + r() * 3);
   }
 }

@@ -1,6 +1,6 @@
 // Animazioni del solo disegno, calcolate dallo stato e dagli eventi del motore senza modificarli: assetto dei mezzi
 // (posizione ammorbidita, sterzata, beccheggio, cingoli), rinculo delle armi, porte delle fabbriche, cantieri con la
-// gru, palle di fuoco delle esplosioni e macerie degli edifici crollati.
+// gru, sbuffi delle palle di fuoco e macerie degli edifici crollati.
 import { TILE, CHASSIS, angDiff, mulberry32 } from '../engine/index.js';
 
 /* ---------- assetto dei mezzi ---------- */
@@ -144,8 +144,7 @@ export function drawSite(g, s, x0, y0, w, h, t, now, rm) {
 }
 
 /* ---------- palla di fuoco ---------- */
-// Sbuffi che si accendono uno dopo l'altro: lampo bianco, fiamma che si allarga e sale, poi si spegne nel fumo.
-const FB_C = ['#fff6d8', '#ffd27a', '#f39237', '#c4502a', '#4a3d33'];
+// Sbuffi che si accendono uno dopo l'altro (effects.js li disegna come aloni additivi): [dx, dy, raggio, ritardo].
 export function makeFireball(x, y, R, life, n) {
   const puffs = [];
   for (let i = 0; i < n; i++) {
@@ -153,18 +152,6 @@ export function makeFireball(x, y, R, life, n) {
     puffs.push(Math.cos(a) * d, Math.sin(a) * d, R * (i ? 0.45 + Math.random() * 0.35 : 0.7), i ? Math.random() * 0.3 : 0);
   }
   return { k: 'fball', x, y, R, life, max: life, puffs };
-}
-export function drawFireball(g, f) {
-  const p = 1 - f.life / f.max, P = f.puffs;
-  for (let i = 0; i < P.length; i += 4) {
-    const q = (p - P[i + 3]) / 0.7; if (q < 0 || q > 1) continue;
-    const e = 1 - (1 - q) * (1 - q), r = P[i + 2] * (0.35 + 0.85 * e), x = f.x + P[i] * (0.6 + 0.6 * e), y = f.y + P[i + 1] * (0.6 + 0.6 * e) - q * f.R * 0.35;
-    const ci = q < 0.12 ? 0 : q < 0.3 ? 1 : q < 0.55 ? 2 : q < 0.78 ? 3 : 4;
-    g.globalAlpha = ci < 4 ? 0.95 : 0.8 * (1 - (q - 0.78) / 0.22);
-    g.fillStyle = FB_C[ci]; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
-    if (ci < 3) { g.fillStyle = FB_C[ci === 0 ? 0 : ci - 1]; g.beginPath(); g.arc(x - r * 0.15, y - r * 0.15, r * 0.55, 0, 7); g.fill(); }
-  }
-  g.globalAlpha = 1;
 }
 
 /* ---------- macerie ---------- */

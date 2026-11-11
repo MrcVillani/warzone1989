@@ -1,7 +1,7 @@
 // Misura dei fotogrammi al secondo durante una battaglia con molti mezzi, su telefono e computer simulati.
 // Solo informativa (in headless i numeri dipendono dalla macchina): non fa fallire nulla.
 // La battaglia usa le armi miste della fase B (100 mezzi per lato) e la qualità degli effetti automatica: per ogni
-// prova si riporta anche il livello di qualità (alta, media, bassa) a fine misura e il tempo passato in ciascuno.
+// prova si riporta anche il livello di qualità (alta, media, bassa, minima) a fine misura e il tempo passato in ciascuno.
 // Uso: npm run build && node tests/e2e/prestazioni.mjs
 //   MEZZI=200 SECONDI=8   mezzi in campo (metà per lato) e durata della misura
 //   CPU=4                 CPU 4 volte più lenta (telefono di fascia media)
@@ -67,9 +67,10 @@ for (const [name, opts] of profiles.filter(([n]) => !only || only.includes(n))) 
     const r = await page.evaluate(secs => new Promise(res => {
       const W = window.__wz, t0 = performance.now(), per = [], dts = [];
       let last = t0, cnt = 0, sec = t0, maxParts = 0;
-      const inLevel = { alta: 0, media: 0, bassa: 0 }, path = [W.fxq().level];
+      // Tutti i livelli possibili, anche «minima» (piano 08); un nome sconosciuto si conta lo stesso, senza NaN.
+      const inLevel = { alta: 0, media: 0, bassa: 0, minima: 0 }, path = [W.fxq().level];
       const f = now => {
-        const lv = W.fxq().level; inLevel[lv] += (now - last) / 1000; if (path[path.length - 1] !== lv) path.push(lv);
+        const lv = W.fxq().level; inLevel[lv] = (inLevel[lv] || 0) + (now - last) / 1000; if (path[path.length - 1] !== lv) path.push(lv);
         dts.push(now - last); last = now; cnt++;
         maxParts = Math.max(maxParts, W.fxs.parts.length);
         if (now - sec >= 1000) { per.push(cnt * 1000 / (now - sec)); cnt = 0; sec = now; }
@@ -86,7 +87,7 @@ for (const [name, opts] of profiles.filter(([n]) => !only || only.includes(n))) 
     console.log(`${CPU > 1 ? `CPU÷${CPU} ` : ''}${name.padEnd(21)} ${rm === 'reduce' ? 'riduci movimento' : 'normale         '}  mezzi ${setup.units} → ${r.alive}  ` +
       `fps medi ${avg.toFixed(1)} (min ${Math.min(...r.fps).toFixed(1)}, max ${Math.max(...r.fps).toFixed(1)})  ` +
       `fotogramma p95 ${r.p95.toFixed(1)} ms, peggiore ${r.max.toFixed(1)} ms  particelle max ${r.maxParts}  ` +
-      `qualità ${r.path.join(' → ')} (alta ${r.inLevel.alta.toFixed(1)} s, media ${r.inLevel.media.toFixed(1)} s, bassa ${r.inLevel.bassa.toFixed(1)} s; media fotogramma ${r.q.avg} ms)  musica ${mu.profile ?? 'di base'} (${mu.key}, ${mu.bpm}), ${mu.state}, note ${(mu.played || 0) - (mu0.played || 0)}, scartate ${(mu.dropped || 0) - (mu0.dropped || 0)}${errors.length ? '  ERRORI: ' + errors.join(' | ') : ''}`);
+      `qualità ${r.path.join(' → ')} (alta ${r.inLevel.alta.toFixed(1)} s, media ${r.inLevel.media.toFixed(1)} s, bassa ${r.inLevel.bassa.toFixed(1)} s, minima ${r.inLevel.minima.toFixed(1)} s; media fotogramma ${r.q.avg} ms)  musica ${mu.profile ?? 'di base'} (${mu.key}, ${mu.bpm}), ${mu.state}, note ${(mu.played || 0) - (mu0.played || 0)}, scartate ${(mu.dropped || 0) - (mu0.dropped || 0)}${errors.length ? '  ERRORI: ' + errors.join(' | ') : ''}`);
     await ctx.close();
   }
 }

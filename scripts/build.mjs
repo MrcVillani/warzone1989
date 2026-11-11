@@ -1,6 +1,7 @@
 // Costruisce il gioco in un solo file HTML, con CSS e JavaScript in linea.
 //   dist/index.html     documento completo: browser, server statico, WebView Android
 //   dist/artifact.html  frammento senza <html>/<head>, per pubblicarlo come pagina su claude.ai
+// Il worker del terreno (client/terrain-worker.js) è dentro il JavaScript come testo: nessun file in più.
 import { build } from 'esbuild';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -10,9 +11,16 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const out = path.join(root, 'dist');
 mkdirSync(out, { recursive: true });
 
+// Il Web Worker della cottura del terreno si impacchetta a parte e entra nel gioco come testo (__TERRAIN_WORKER__):
+// il client lo avvia da un Blob, così non serve un secondo file (file unico, anteprima su claude.ai, APK).
+const worker = await build({
+  entryPoints: [path.join(root, 'client/terrain-worker.js')],
+  bundle: true, format: 'iife', target: 'es2020', minify: true, write: false, legalComments: 'none',
+});
 const js = await build({
   entryPoints: [path.join(root, 'client/main.js')],
   bundle: true, format: 'iife', target: 'es2020', minify: true, write: false, legalComments: 'none',
+  define: { __TERRAIN_WORKER__: JSON.stringify(worker.outputFiles[0].text) },
 });
 const code = js.outputFiles[0].text.replace(/<\/script/gi, '<\\/script');
 const css = readFileSync(path.join(root, 'client/style.css'), 'utf8');
