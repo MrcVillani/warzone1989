@@ -1,6 +1,7 @@
 # Piano 10 · Meteo e veterani
 
-Richiesta del proprietario: tra i miglioramenti proposti ha scelto «Meteo e veterani». **In attesa di approvazione.**
+Richiesta del proprietario: tra i miglioramenti proposti ha scelto «Meteo e veterani», e ha chiesto che i veterani
+migliorino e che, migliorando, abbiano un aspetto «sempre più coatto». Approvato.
 
 ## Meteo
 
@@ -36,8 +37,26 @@ I mezzi che distruggono nemici salgono di grado. Vale per tutti e due i lati; to
   per gli assi del giocatore, un avviso.
 - I genieri non salgono di grado. Il modulo riparazione conta le riparazioni come mezza distruzione ogni 150 punti
   riparati, così anche i mezzi di supporto fanno carriera.
-- **Campagna (scelta da confermare)**: alla vittoria, fino a tre mezzi sopravvissuti di grado Veterano o Asso
-  seguono il giocatore nella missione dopo, in più rispetto ai mezzi di partenza.
+- **Campagna**: alla vittoria, fino a tre mezzi sopravvissuti di grado Veterano o Asso seguono il giocatore nella
+  missione dopo, in più rispetto ai mezzi di partenza, con il loro grado e la loro livrea.
+
+### Livree sempre più coatte
+
+Più il mezzo sale di grado, più è vistoso. Tutto disegnato da noi, senza marchi; la fascia del colore del lato resta
+sempre leggibile. Vale anche per il nemico, con il suo stile (ferro, cromo e rosso).
+
+| Grado | Livrea |
+|---|---|
+| Recluta | di serie, com'è oggi |
+| Esperto | tacche delle vittorie sulla canna, striscia da corsa sul cofano, fari supplementari gialli |
+| Veterano | fiamme dipinte sui fianchi, cromature lucide su cingoli e cerchi, coda di volpe sull'antenna che sventola, scarico più grosso |
+| Asso | vernice metallizzata con bordi dorati, fiamme d'oro, alettone posteriore, doppio scarico cromato che sbuffa di più, luce al neon sotto la scocca (si vede bene di notte), scintillio ogni tanto |
+
+- Gli assi del giocatore ricevono un **soprannome** a caso, di fantasia (per esempio «er Bufera», «la Pantera»,
+  «er Tritacarri»), mostrato nel pannello e nell'avviso di promozione.
+- Quando un asso viene distrutto, il relitto conserva alettone e cromature.
+- In qualità «minima» restano il gallone e i bordi dorati; neon, scintillio e coda che sventola si spengono con
+  «riduci movimento» dove sono movimento.
 
 ## Contratto tra motore e client
 
@@ -47,7 +66,7 @@ I mezzi che distruggono nemici salgono di grado. Vale per tutti e due i lati; to
 - `newGame(diff, seed, { weather })` per la schermaglia: `'clear' | 'rain' | 'fog' | 'variable'`; `S.weatherMode`.
 - Evento `weather` `{ from, to }` quando il tempo cambia.
 - `RANKS` (tabella: nome, distruzioni, moltiplicatori) e, su ogni mezzo, `xp` e `rank` (0–3), salvati.
-- Evento `rank` `{ id, owner, rank, x, y }` alla promozione.
+- Evento `rank` `{ id, owner, rank, x, y }` alla promozione. Il soprannome e la livrea sono solo del client.
 - Campagna: `finishMission` ricorda i veterani (progetto e grado); `newGame(..., { veterans })` li mette in campo.
 
 ## Verifica
@@ -64,5 +83,5 @@ I mezzi che distruggono nemici salgono di grado. Vale per tutti e due i lati; to
 | # | Agente | Compito |
 |---|---|---|
 | 1 | backend | meteo (tabella, regole, missioni, schermaglia, variabile, salvataggi), gradi e veterani, eventi |
-| 2 | frontend | pioggia e nebbia (disegno e suono), riga «Meteo» nel menu, galloni, pannello, avvisi, battuta di Latina; può partire in parallelo: il contratto è fissato qui sopra |
+| 2 | frontend | pioggia e nebbia (disegno e suono), riga «Meteo» nel menu, galloni, livree coatte per grado, soprannomi, pannello, avvisi, battuta di Latina; può partire in parallelo: il contratto è fissato qui sopra |
 | 3 | tester | test del motore, bilanciamento, prove nel browser |
