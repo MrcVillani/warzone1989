@@ -48,7 +48,11 @@ export function setPref(p) {
 // Si scende di un livello dopo DOWN_S secondi sopra HI ms (FAST_S se il fotogramma costa più del doppio), si sale dopo
 // UP_S secondi sotto LO ms (UP_MANY_S con molti mezzi in campo: in una battaglia grande si sale con più prudenza).
 const HI = 22, LO = 14, DOWN_S = 2, FAST_S = 1, UP_S = 5, UP_MANY_S = 12, MANY = 120, MANY_LEVEL = 1;
-let avg = 0, down = 0, up = 0, clockS = 0, lastUp = -1e9, hold = 0, blockUntil = 0, many = false;
+let avg = 0, down = 0, up = 0, clockS = 0, lastUp = -1e9, hold = 0, blockUntil = 0, many = false, warmUntil = 0;
+// Mappa nuova: i primi WARM_S secondi di gioco non si misurano (si creano sagome, trame e terreno: fotogrammi lenti che
+// non dicono quanto costa la grafica).
+const WARM_S = 1.5;
+export function qualityNewMap() { warmUntil = clockS + WARM_S; avg = 0; down = up = 0; many = false; }
 // interval: ms dall'ultimo fotogramma; work: ms spesi nel ciclo; units: mezzi in campo (o null se non contati ora).
 // Mezzi in campo (contati prima di disegnare il fotogramma): con molti mezzi si parte direttamente da «bassa», una
 // volta per battaglia; poi decide la misura.
@@ -62,8 +66,9 @@ export function frameTick(interval, work, units) {
   unitsTick(units);
   if (!(interval > 0) || interval > 250) return; // scheda nascosta, caricamento: non è una misura
   const s = interval / 1000, cost = interval > 20 ? interval : work;
-  avg = avg ? avg + (cost - avg) * Math.min(1, s / 0.5) : cost;
   clockS += s;
+  if (clockS < warmUntil) return;
+  avg = avg ? avg + (cost - avg) * Math.min(1, s / 0.5) : cost;
   down = avg > HI ? down + s : 0;
   up = avg < LO ? up + s : 0;
   if ((down >= DOWN_S || (down >= FAST_S && avg > 2 * HI)) && fxq.level > 0) {

@@ -11,6 +11,7 @@ import { getCampaign, setCampaign, resetCampaign, campaignDiff, setCampaignDiff 
 import { uiSfx } from './audio.js';
 import { musicSting } from './music.js';
 import { mapPref, setMapPref, mapInfo } from './prefs.js';
+import { isLatina, latinaEnd, LATINA_NOTE } from './latina.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -60,7 +61,7 @@ export function showStart() {
         <p class="mk">Schermaglia</p>
         <h2 class="mt" id="mSkirm">Partita libera</h2>
         <div class="diff mapsel" role="group" aria-label="Mappa"><span class="lbl">Mappa</span>${mapChips(mp.id)}</div>
-        <p class="md">${esc(mp.desc)}</p>
+        <p class="md">${esc(mp.desc)}${mp.id === 'latina' ? `<br>${esc(LATINA_NOTE)}` : ''}</p>
         <div class="diff"><span class="lbl">Avversario</span>${diffChips('diff', ui.diff)}</div>
         ${mp.id === 'casuale' ? `<p class="mp">Carta operativa n. ${S.seed % 10000}</p>` : '<p class="mp credit">Ispirata alla geografia della città; disegnata a mano.</p>'}
         <div class="mact"><button class="primary" id="ovStart">Inizia la schermaglia</button>${mp.id === 'casuale' ? '<button class="btn" id="ovMap">Cambia carta</button>' : ''}</div>
@@ -215,10 +216,12 @@ export function showEnd(won, reason) {
 }
 function showSkirmishEnd(won) {
   const st = S.stats;
+  // su Latina titolo e testo con un sorriso (latina.js); altrove quelli della valle
+  const lat = isLatina() ? latinaEnd(won) : null;
   open('end', `<div class="card" role="dialog" aria-labelledby="ovt" style="border-top-color:${won ? 'var(--olive)' : 'var(--brick)'}">
     <p class="eyebrow">Rapporto finale · schermaglia${S.map ? ` · ${esc(mapInfo(S.map).name)}` : ''} · ${fmtTime(S.time)} · ${DIFF[S.diff].label}</p>
-    <h2 class="title" id="ovt">${won ? 'Valle <span>liberata</span>' : 'Brigata <span>sconfitta</span>'}</h2>
-    <p class="brief">${won ? 'Il comando e le fabbriche del Direttorio Ferreo sono fuori uso. I giacimenti della valle sono tuoi.' : 'Hai perso il comando, le fabbriche e tutti i genieri. Il Direttorio Ferreo controlla la valle.'}</p>
+    <h2 class="title" id="ovt">${lat ? lat.title : won ? 'Valle <span>liberata</span>' : 'Brigata <span>sconfitta</span>'}</h2>
+    <p class="brief">${lat ? esc(lat.text) : won ? 'Il comando e le fabbriche del Direttorio Ferreo sono fuori uso. I giacimenti della valle sono tuoi.' : 'Hai perso il comando, le fabbriche e tutti i genieri. Il Direttorio Ferreo controlla la valle.'}</p>
     <div class="stats"><div><b>${st.made[P]}</b><span>Mezzi prodotti</span></div><div><b>${st.kills[P]}</b><span>Nemici distrutti</span></div><div><b>${st.lost[P]}</b><span>Perdite</span></div><div><b>${st.built[P]}</b><span>Edifici costruiti</span></div></div>
     <div class="actions"><button class="primary" id="ovAgain">Nuova operazione</button><button class="btn" id="ovLook">Guarda la mappa</button></div>
   </div>`);

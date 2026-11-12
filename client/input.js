@@ -13,7 +13,9 @@ import { layout } from './layout.js';
 import { closeDrawer, nearGhost, moveGhost, syncGhost } from './drawer.js';
 
 // Gesti touch: soglie di movimento e di tempo per distinguere tocco, trascinamento, tocco lungo e doppio tocco.
-export const TAP_MOVE = 10, LONG_MS = 450, DBL_MS = 350;
+// I tempi si misurano sugli istanti degli eventi (evTime); il doppio tocco ha un po' di margine (400 ms) per i
+// telefoni lenti, dove anche l'istante dell'evento può arrivare in ritardo.
+export const TAP_MOVE = 10, LONG_MS = 450, DBL_MS = 400;
 const SNAP_PX = 32; // raggio di aggancio del tocco ai propri mezzi, in pixel dello schermo
 // Zoom: rotella del computer come oggi; con due dita limiti un po' più ampi.
 const ZMIN = 0.55, ZMAX = 1.7, ZMIN_T = 0.45, ZMAX_T = 2.0;
@@ -126,9 +128,11 @@ function pickTouch(px, py) {
 let lastTap = { t: 0, id: 0, x: 0, y: 0 };
 // Piazzamento con conferma (disposizione B): un tocco sulla mappa porta lì l'edificio, non lo costruisce.
 function ghostTo(px, py) { const w = screenToWorld(px, py); moveGhost(w.x, w.y); }
-function tapAt(px, py) {
+// t: istante del tocco (quello dell'evento, non quello in cui il gestore arriva: con i fotogrammi lenti i due tocchi
+// di un doppio tocco possono essere gestiti più distanti di quanto non siano stati fatti).
+function tapAt(px, py, t = performance.now()) {
   if (ui.placing && ui.ghost) { ghostTo(px, py); return; }
-  const hit = ui.placing || ui.amove ? null : pickTouch(px, py), now = performance.now();
+  const hit = ui.placing || ui.amove ? null : pickTouch(px, py), now = t;
   const dbl = !!hit && hit.kind === 'unit' && hit.owner === P && lastTap.id === hit.id && now - lastTap.t < DBL_MS;
   lastTap = { t: dbl ? 0 : now, id: hit ? hit.id : 0, x: px, y: py };
   clickAt(px, py, true, false, dbl, hit);
@@ -191,7 +195,7 @@ function touchBox(d) {
 const HALT_V = 40;
 // Istante di un evento del dito: quello dell'evento (il momento vero del movimento, anche se il gestore arriva tardi
 // con i fotogrammi lenti), se è nella stessa scala di performance.now(); altrimenti adesso.
-function evTime(ev, now) { const t = ev && ev.timeStamp; return t > 0 && t <= now + 50 && now - t < 1000 ? t : now; }
+export function evTime(ev, now = performance.now()) { const t = ev && ev.timeStamp; return t > 0 && t <= now + 50 && now - t < 1000 ? t : now; }
 // Punti del dito in un pointermove: anche quelli accorpati dal browser tra un fotogramma e l'altro, se disponibili.
 function movePoints(e, now) {
   const dx = e.offsetX - e.clientX, dy = e.offsetY - e.clientY;
@@ -271,7 +275,7 @@ export function initInput(cv, mini) {
       if (nearGhost(x, y)) { const w = screenToWorld(x, y); drag = { type: 'ghost', x, y, ox: ui.ghost.x - w.x, oy: ui.ghost.y - w.y }; return; }
       // Dito: scorre la mappa; fermo e veloce = tocco; fermo per LONG_MS = tocco lungo (poi trascinare = riquadro).
       const now = performance.now();
-      const d = { type: 'touch', state: 'press', sx: x, sy: y, x, y, cx: cam.x, cy: cam.y, hist: [{ t: evTime(e, now), x, y }], timer: 0, halted };
+      const t0 = evTime(e, now), d = { type: 'touch', state: 'press', sx: x, sy: y, x, y, cx: cam.x, cy: cam.y, t0, hist: [{ t: t0, x, y }], timer: 0, halted };
       d.timer = setTimeout(() => {
         if (drag !== d || d.state !== 'press') return;
         d.state = 'long'; d.timer = 0; buzz(20);
@@ -320,18 +324,21 @@ export function initInput(cv, mini) {
       if (!had) return;
       const d = drag; drag = null; if (d.timer) clearTimeout(d.timer); fxs.boxSel = null;
       if (e.type === 'pointercancel') return;
-      if (d.state === 'pan') startInertia(d, { t: evTime(e, performance.now()), x: d.x, y: d.y });
+      const te = evTime(e);
+      // dito alzato prima di LONG_MS ma gestito dopo il timer (fotogramma lento): era un tocco, non un tocco lungo
+      if (d.state === 'long' && d.t0 != null && te - d.t0 < LONG_MS) d.state = 'press';
+      if (d.state === 'pan') startInertia(d, { t: te, x: d.x, y: d.y });
       else if (d.state === 'box') { if (!ui.placing) boxSelect(touchBox(d), false); fxs.boxSel = null; }
       else if (d.state === 'long') longTapAt(d.sx, d.sy);
       else if (d.halted) lastTap = { t: 0, id: 0, x: 0, y: 0 };
-      else tapAt(d.sx, d.sy);
+      else tapAt(d.sx, d.sy, te);
       return;
     }
     const d = drag; drag = null; fxs.boxSel = null; cv.classList.remove('pan');
     if (e.type === 'pointercancel') return;
     if (d.type === 'box' && d.moved && !ui.placing) { boxSelect(d, d.shift); return; }
     if (!d.moved) {
-      const w = screenToWorld(d.sx, d.sy), hit = pickAt(w.x, w.y, d.touch), now = performance.now();
+      const w = screenToWorld(d.sx, d.sy), hit = pickAt(w.x, w.y, d.touch), now = evTime(e);
       const dbl = hit && lastClick.id === hit.id && now - lastClick.t < 350;
       lastClick = { t: now, id: hit ? hit.id : 0 };
       clickAt(d.sx, d.sy, d.touch, d.shift, dbl);
@@ -393,7 +400,7 @@ export function initInput(cv, mini) {
     if (/^[1-9]$/.test(k)) {
       if (e.ctrlKey || e.metaKey) { saveSquad(k); e.preventDefault(); }
       else if (squadIds(k).length) {
-        const now = performance.now(), dbl = ui.lastGroup === k && now - ui.lastGroupT < 400;
+        const now = evTime(e), dbl = ui.lastGroup === k && now - ui.lastGroupT < 400;
         ui.lastGroup = k; ui.lastGroupT = now; recallSquad(k, dbl);
       }
     }

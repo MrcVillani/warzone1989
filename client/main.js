@@ -4,13 +4,14 @@ import { ui, fxs } from './state.js';
 import { initRender, resize, renderTerrain, updateFogImage, spawnFx, updParts, render, renderMini, resetFx, unitSpawned, structPlaced, structBuilt, renderState } from './render.js';
 import { initAudio, fxSound, uiSfx, audioState, onAudioReady, heard } from './audio.js';
 import { attachMusic, musicMode, musicMission, musicHit, musicDuck, musicState } from './music.js';
-import { fxq, frameTick, unitsTick, onQualityChange, qualityState, setPref } from './quality.js';
+import { fxq, frameTick, unitsTick, onQualityChange, qualityState, setPref, qualityNewMap } from './quality.js';
 const fxPref = () => fxq.pref;
 import { initInput, camScroll } from './input.js';
 import { initUI, renderPanel, updateBar, updateSelCount, toast, startGame, randomSeed } from './ui.js';
 import { alertFx, alertPing, alertBuilt, alertToast, updateArrows, resetAlerts } from './alerts.js';
 import { initLayout } from './layout.js';
 import { setMapPref } from './prefs.js';
+import { resetLatina, latinaFx, latinaBuilt, latinaTick, latinaState } from './latina.js';
 import { initDrawer, updatePlacebar } from './drawer.js';
 import { initScreens, showStart, showEnd, showCampaign, showBrief, refreshObjective, resetObjectiveHud, limitText, missionIndex } from './screens.js';
 
@@ -19,13 +20,16 @@ initRender(cv, mini);
 
 initAudio();
 onAudioReady((ac, master) => attachMusic(ac, master));
-// cambio del livello di qualità: la tela della mappa prende la risoluzione del nuovo livello
-onQualityChange(() => resize());
+// cambio del livello di qualità: la tela della mappa prende la risoluzione del nuovo livello all'inizio del fotogramma
+// dopo, prima di disegnare (cambiare la misura della tela la svuota: fatto dopo il disegno, si vedrebbe un fotogramma
+// vuoto)
+let resizeDue = false;
+onQualityChange(() => { resizeDue = true; });
 
 onEvent((type, d) => {
-  if (type === 'world') { resetFx(); resetAlerts(); renderTerrain(S.seed); }
+  if (type === 'world') { resetFx(); resetAlerts(); resetLatina(); qualityNewMap(); renderTerrain(S.seed); }
   else if (type === 'fog') updateFogImage();
-  else if (type === 'fx') { spawnFx(d); fxSound(d); musicFx(d); alertFx(d); }
+  else if (type === 'fx') { spawnFx(d); fxSound(d); musicFx(d); alertFx(d); latinaFx(d); }
   else if (type === 'toast') {
     // avvisi con una posizione (contatto, edificio pronto o perso, reparti in arrivo): toccandoli si va lì
     alertToast(toast(d.text, d.kind), d);
@@ -38,7 +42,7 @@ onEvent((type, d) => {
   }
   else if (type === 'ping') { fxs.pings.push({ x: d.x, y: d.y, t: S.time }); alertPing(d); }
   else if (type === 'unit') { unitSpawned(d); if (d.owner === P) uiSfx('unitReady'); }
-  else if (type === 'built') { structBuilt(d); alertBuilt(d); if (d.owner === P) uiSfx('built'); }
+  else if (type === 'built') { structBuilt(d); alertBuilt(d); latinaBuilt(d); if (d.owner === P) uiSfx('built'); }
   else if (type === 'research') { if (d.owner === P) uiSfx('research'); }
   else if (type === 'placed') structPlaced(d);
   else if (type === 'objective') refreshObjective(d);
@@ -89,6 +93,7 @@ function frame(now) {
   guard('simulazione', () => { if (S && !ui.paused && !ui.overlay && S.phase === 'play') for (let k = 0; k < ui.speed; k++) step(dt); });
   guard('effetti', () => { if (S && (!ui.paused || ui.overlay === 'ended')) updParts(dt); });
   if (ui.sel.length && ui.sel.some(id => !ent(id))) ui.sel = ui.sel.filter(id => ent(id));
+  if (resizeDue) { resizeDue = false; guard('misure', resize); }
   guard('camera', () => camScroll(dt));
   // qualità adattiva: conta i mezzi in campo prima di disegnare (una battaglia grande parte subito dal livello giusto)
   // e misura il fotogramma solo a partita in corso
@@ -97,7 +102,7 @@ function frame(now) {
   guard('disegno', () => render(now));
   guard('frecce', () => { updateArrows(); updateSelCount(); updatePlacebar(); });
   if ((mmT -= dt) <= 0) { mmT = 0.1; guard('minimappa', renderMini); }
-  if ((uiT -= dt) <= 0) { uiT = 0.2; guard('pannello', () => { renderPanel(false); updateBar(); if (S && S.timeLimit) limitText(); }); guard('musica', () => { const m = musicFor(); if (m) { musicMission(S && S.mission, S && S.objective && S.objective.stage); musicMode(m); } }); }
+  if ((uiT -= dt) <= 0) { uiT = 0.2; guard('pannello', () => { renderPanel(false); updateBar(); if (S && S.timeLimit) limitText(); if (S && !ui.overlay) latinaTick(t => toast(t)); }); guard('musica', () => { const m = musicFor(); if (m) { musicMission(S && S.mission, S && S.objective && S.objective.stage); musicMode(m); } }); }
   if (running) guard('qualità', () => frameTick(iv, performance.now() - t0, null));
 }
 
@@ -134,6 +139,6 @@ function start(data) {
 // si sta cuocendo il terreno (worker o filo principale) e se la visuale è pronta.
 import * as engine from '../engine/index.js';
 import { cam } from './state.js';
-window.__wz = { engine, ui, cam, fxs, get S() { return S; }, step: dt => step(dt), P, audio: audioState, music: musicState, fxq: qualityState, setFx: setPref, gfx: renderState };
+window.__wz = { engine, ui, cam, fxs, get S() { return S; }, step: dt => step(dt), P, audio: audioState, music: musicState, fxq: qualityState, setFx: setPref, gfx: renderState, latina: latinaState };
 
 window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});

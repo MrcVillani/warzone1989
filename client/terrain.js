@@ -127,11 +127,14 @@ function ready(req, img) {
   terrainStats.baked++;
 }
 // Chiede il pezzo cx, cy nella variante v (se non è già quella mostrata o in cottura); front: prima degli altri.
+// Una richiesta ancora in coda per lo stesso pezzo in un'altra variante si toglie (cambio di livello: niente lavoro
+// sprecato); quelle già nel worker arrivano lo stesso e fanno da riserva.
 function request(cx, cy, v, front) {
   const s = shown[cx + cy * NC];
   if (s && s.canopy === !!v.canopy && s.dark === !!v.dark) return;
   const key = `${vkey(v)}:${cx},${cy}`;
   if (chunks.has(key)) return;
+  for (let i = queue.length - 1; i >= 0; i--) { const q = queue[i]; if (q.cx === cx && q.cy === cy) { chunks.delete(q.key); queue.splice(i, 1); } }
   chunks.set(key, true);
   const req = { key, cx, cy, v: { canopy: !!v.canopy, dark: !!v.dark }, front };
   if (front) queue.unshift(req); else queue.push(req);
@@ -141,7 +144,9 @@ export function pumpTerrain() {
   if (!world || !queue.length) return;
   const ws = pool();
   if (terrainStats.mode === 'worker') {
-    while (queue.length && inFlight < ws.length * 2) {
+    // un lavoro per worker alla volta (un pezzo della visuale chiesto ora non aspetta dietro a quelli già spediti);
+    // con i fotogrammi lenti un solo worker al lavoro, per lasciare più tempo al gioco
+    while (queue.length && inFlight < (slowNow ? 1 : ws.length)) {
       const req = queue.shift(); if (!chunks.has(req.key)) continue;
       const id = nextId++; jobs.set(id, { key: req.key, req, gen, t0: performance.now() }); inFlight++;
       ws[id % ws.length].postMessage({ id, args: argsOf(req.cx, req.cy, req.v) });
@@ -168,14 +173,17 @@ export function pumpTerrain() {
 // busy: il dispositivo non sta al passo (fotogrammi lunghi): il resto della mappa si cuoce piano, un pezzo al secondo,
 // così il worker non toglie tempo al gioco; i pezzi della visuale si chiedono sempre subito.
 const drawn = { bare: new Set(), undark: [] };
-let lastRest = 0;
+let lastRest = 0, slowNow = false;
 export function drawTerrain(g, vr, v, busy) {
+  slowNow = !!busy;
   drawn.bare.clear(); drawn.undark.length = 0;
   if (!world) return drawn;
   const cx0 = clamp(Math.floor(vr.x0 / CHUNK), 0, NC - 1), cy0 = clamp(Math.floor(vr.y0 / CHUNK), 0, NC - 1);
   const cx1 = clamp(Math.floor(vr.x1 / CHUNK), 0, NC - 1), cy1 = clamp(Math.floor(vr.y1 / CHUNK), 0, NC - 1);
   for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
-    request(cx, cy, v, true);
+    // un pezzo ancora di riserva si chiede prima con le chiome cotte (va bene per ogni livello e per la tinta di
+    // notte giusta); la variante senza chiome degli alberi vivi arriva dopo
+    request(cx, cy, shown[cx + cy * NC] ? v : { canopy: true, dark: v.dark }, true);
     const s = shown[cx + cy * NC];
     if (!s || !s.canopy) drawn.bare.add(cx + cy * NC);
     if (v.dark && !(s && s.dark)) drawn.undark.push(cx, cy);

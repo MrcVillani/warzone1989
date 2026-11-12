@@ -40,7 +40,9 @@ export function resize() {
   const r = cv.getBoundingClientRect(); view.cw = Math.max(1, r.width); view.ch = Math.max(1, r.height);
   const w = Math.round(view.cw * view.dpr), h = Math.round(view.ch * view.dpr);
   if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
-  const m = mini.getBoundingClientRect(); mini.width = Math.round(Math.max(1, m.width) * dpr); mini.height = Math.round(Math.max(1, m.height) * dpr);
+  // riassegnare width o height svuota la tela: solo se la misura cambia davvero
+  const m = mini.getBoundingClientRect(), mw = Math.round(Math.max(1, m.width) * dpr), mh = Math.round(Math.max(1, m.height) * dpr);
+  if (mini.width !== mw || mini.height !== mh) { mini.width = mw; mini.height = mh; renderMini(); }
   if (vig) vig.hidden = !fxq.q.vignette;
   clampCam();
 }

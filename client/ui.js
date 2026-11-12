@@ -10,7 +10,7 @@ import { centerOn, screenToWorld, drawVehicle, vehicleExtent, hpColor } from './
 import { soundOn, setSound, getVolume, setVolume, onAudioChange, uiSfx } from './audio.js';
 import { fxq, setPref } from './quality.js';
 import { musicOn, setMusic, getMusicVolume, setMusicVolume, onMusicChange } from './music.js';
-import { selectArmy, saveSquad, recallSquad, squadIds, LONG_MS, DBL_MS, TAP_MOVE, stopInertia } from './input.js';
+import { selectArmy, saveSquad, recallSquad, squadIds, LONG_MS, DBL_MS, TAP_MOVE, stopInertia, evTime } from './input.js';
 import { nextAlarm, alarmList, initAlerts, resetAlerts } from './alerts.js';
 import { layout } from './layout.js';
 import { paneTab, toggleDrawer, openDrawer, syncDrawer, startPlacing, updatePlacebar } from './drawer.js';
@@ -333,10 +333,11 @@ function initSquads() {
       p = q;
     });
     b.addEventListener('pointermove', e => { if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) > TAP_MOVE) cancel(); });
-    b.addEventListener('pointerup', () => {
+    b.addEventListener('pointerup', e => {
       if (!p) return;
       const q = p; cancel(); if (q.long) return;
-      const now = performance.now(), dbl = lastK === k && now - lastT < DBL_MS;
+      // istante dell'evento (non della gestione): con i fotogrammi lenti il doppio tocco non si perde
+      const now = evTime(e), dbl = lastK === k && now - lastT < DBL_MS;
       lastK = dbl ? null : k; lastT = now;
       recallSquad(k, dbl); ui.key = ''; renderPanel(true); updateSelCount();
     });
