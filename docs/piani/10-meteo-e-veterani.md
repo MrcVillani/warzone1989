@@ -85,3 +85,32 @@ sempre leggibile. Vale anche per il nemico, con il suo stile (ferro, cromo e ros
 | 1 | backend | meteo (tabella, regole, missioni, schermaglia, variabile, salvataggi), gradi e veterani, eventi |
 | 2 | frontend | pioggia e nebbia (disegno e suono), riga «Meteo» nel menu, galloni, livree coatte per grado, soprannomi, pannello, avvisi, battuta di Latina; può partire in parallelo: il contratto è fissato qui sopra |
 | 3 | tester | test del motore, bilanciamento, prove nel browser |
+
+## Aggiunta: la «Macchina di Villo»
+
+Richiesta del proprietario: nella campagna c'è sempre un mezzo speciale, la «Macchina di Villo», potentissimo, che
+genera esplosioni con animazioni spettacolari; è una berlina grigia a tre volumi.
+
+- **Aspetto**: berlina compatta grigio metallizzato a quattro porte, disegnata da noi vista dall'alto, senza stemmi né
+  nomi di marca nel gioco (il nome nel gioco è solo «Macchina di Villo»). Sale di grado come gli altri mezzi e
+  diventa sempre più coatta (alettone, neon, fiamme) restando grigia.
+- **Dove**: in tutte le otto missioni della campagna, accanto al comando all'inizio. Non si produce e non c'è in
+  schermaglia.
+- **Forza**: mezzo su ruote veloce (prende il vantaggio delle strade), molto resistente. Cresce con la campagna
+  (livello 1–8, uno per missione) così resta fortissima in ogni missione senza rendere inutile il resto dell'esercito:
+  vale all'incirca cinque dei migliori mezzi disponibili in quella missione.
+- **Arma**: «Bassi a palla», l'impianto stereo nel bagagliaio: una scarica che esplode sul bersaglio con danno ad
+  area ampio. Ogni terzo colpo è un «colpo grosso» con area e danno maggiori.
+- **Animazioni**: bagagliaio che si apre, onde sonore visibili verso il bersaglio; esplosione speciale a più anelli
+  con colonna di fuoco, fulmini, detriti e scossa dello schermo; il «colpo grosso» con fungo più alto e lampo che
+  illumina tutta la visuale. Sgommate sull'asfalto quando parte.
+- **Se viene distrutta**: non si perde la missione. «La macchina di Villo è dal carrozziere» e torna accanto al
+  comando dopo 60 secondi (se il comando esiste ancora), con il grado che aveva.
+
+Contratto:
+
+- `HERO` in `engine/data.js` (nome, statistiche per livello di missione, arma `HERO_W`, `respawn: 60`); il mezzo ha
+  `hero: 'villo'` e propulsione su ruote.
+- `S.hero` `{ id, down, backAt, rank, xp }`, salvato; evento `hero` `{ state: 'down' | 'back', x, y }` con toast.
+- I colpi dell'eroe emettono `fx` con `hero: true` e `big: true` per il colpo grosso (oltre ai campi di sempre).
+- L'IA in autoplay la usa come un mezzo normale d'attacco.
