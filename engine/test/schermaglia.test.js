@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { S, P, B0, newGame, step, makeStruct, canPlace, mulberry32 } from '../index.js';
+import { S, P, B0, RANKS, newGame, step, makeStruct, canPlace, mulberry32 } from '../index.js';
 
 function spot(type, cx, cy) {
   for (let r = 0; r < 30; r++) for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) {
@@ -31,6 +31,9 @@ function fingerprint(diff, seed, rseed, secs, towers) {
   } finally { Math.random = orig; }
 }
 
+// Impronte del commit d99bd29. Con il piano 10 i gradi dei veterani valgono anche in schermaglia (per tutti e due i
+// lati) e cambiano le partite: queste impronte restano valide solo con i gradi neutralizzati (withoutRanks), a prova
+// che il resto della schermaglia serena (meteo predefinito, IA, produzione) non è cambiato.
 const CASES = [
   { diff: 'normale', seed: 12345, rseed: 7, secs: 600, towers: 0, want: { hash: 'ea65823a7df88816', phase: 'lost', time: 276.1, wave: 1 } },
   { diff: 'difficile', seed: 2, rseed: 11, secs: 500, towers: 0, want: { hash: '3c156d20aea7975f', phase: 'lost', time: 209.1, wave: 1 } },
@@ -38,15 +41,47 @@ const CASES = [
   { diff: 'normale', seed: 12345, rseed: 7, secs: 900, towers: 14, want: { hash: '6d7f124ffa2cfa8c', phase: 'lost', time: 431.1, wave: 2, made: [0, 31] } },
   { diff: 'difficile', seed: 2, rseed: 11, secs: 900, towers: 14, want: { hash: '3b86968f3b5cf1da', phase: 'lost', time: 441.1, wave: 3, made: [0, 31] } },
 ];
+// Le stesse partite con i gradi attivi (piano 10, «Meteo e veterani»): cambiano perché i mezzi che distruggono
+// nemici salgono di grado (più danno e più punti struttura). La prima non cambia: nessun mezzo arriva a 2 distruzioni.
+const CASES_RANKS = [
+  { diff: 'normale', seed: 12345, rseed: 7, secs: 600, towers: 0, want: { hash: 'ea65823a7df88816', phase: 'lost', time: 276.1, wave: 1 } },
+  { diff: 'difficile', seed: 2, rseed: 11, secs: 500, towers: 0, want: { hash: 'a2aabf66fb854e37', phase: 'lost', time: 209.1, wave: 1 } },
+  { diff: 'facile', seed: 81, rseed: 3, secs: 400, towers: 0, want: { hash: 'b18a188b52a9edef', phase: 'lost', time: 366.1, wave: 1 } },
+  { diff: 'normale', seed: 12345, rseed: 7, secs: 900, towers: 14, want: { hash: 'fbf31c8fd214b844', phase: 'lost', time: 444.1, wave: 2, made: [0, 31] } },
+  { diff: 'difficile', seed: 2, rseed: 11, secs: 900, towers: 14, want: { hash: '259042a259d3a279', phase: 'lost', time: 437.1, wave: 3, made: [0, 32] } },
+];
+// Esegue fn con i vantaggi dei gradi spenti (danno e punti struttura ×1, nessuna rigenerazione) e poi li ripristina.
+function withoutRanks(fn) {
+  const saved = RANKS.map(r => ({ ...r }));
+  try {
+    for (const r of RANKS) Object.assign(r, { dmg: 1, hp: 1, regen: 0 });
+    return fn();
+  } finally { RANKS.forEach((r, i) => Object.assign(r, saved[i])); }
+}
 
 for (const c of CASES) {
-  test(`schermaglia identica a parità di casualità: ${c.diff}, seme ${c.seed}, casualità ${c.rseed}, ${c.towers} torrette`, () => {
-    const got = fingerprint(c.diff, c.seed, c.rseed, c.secs, c.towers);
+  test(`schermaglia identica a parità di casualità (gradi neutralizzati): ${c.diff}, seme ${c.seed}, casualità ${c.rseed}, ${c.towers} torrette`, () => {
+    const got = withoutRanks(() => fingerprint(c.diff, c.seed, c.rseed, c.secs, c.towers));
     assert.equal(S.ecfg, undefined, 'la schermaglia non ha la configurazione delle missioni');
+    assert.equal(S.mission, null);
+    assert.equal(S.weather, 'clear', 'la schermaglia senza opzioni è serena');
+    assert.equal(S.hero, null, 'niente Macchina di Villo in schermaglia');
+    for (const k in c.want) assert.deepEqual(got[k], c.want[k], `${k}`);
+  });
+}
+for (const c of CASES_RANKS) {
+  test(`schermaglia identica a parità di casualità (gradi attivi): ${c.diff}, seme ${c.seed}, casualità ${c.rseed}, ${c.towers} torrette`, () => {
+    const got = fingerprint(c.diff, c.seed, c.rseed, c.secs, c.towers);
     assert.equal(S.mission, null);
     for (const k in c.want) assert.deepEqual(got[k], c.want[k], `${k}`);
   });
 }
+
+test('withoutRanks ripristina i gradi anche se la partita dà errore', () => {
+  const before = RANKS.map(r => ({ ...r }));
+  assert.throws(() => withoutRanks(() => { assert.equal(RANKS[3].dmg, 1); throw new Error('prova'); }), /prova/);
+  assert.deepEqual(RANKS, before);
+});
 
 test('schermaglia ripetibile: due partite con la stessa casualità danno la stessa impronta', () => {
   const a = fingerprint('normale', 3, 42, 300, 6), b = fingerprint('normale', 3, 42, 300, 6);

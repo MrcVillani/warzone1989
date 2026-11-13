@@ -8,6 +8,7 @@
 import { CHASSIS, P, clamp } from '../engine/index.js';
 import { PAL } from './state.js';
 import { SUN, NIGHT } from './look.js';
+import { hullLivery, turretLivery, STYLE } from './livery.js';
 
 // Distanza della bocca dell'arma dal perno della torretta (unità del disegno, scala 1) e scala della torretta per telaio.
 export const WEAPON_REACH = { MG: 11, HMG: 15.6, CN: 16.5, FL: 13.6, RP: 14.5, CN75: 22.5, RK: 7, AT: 12.6, MO: 11, CN105: 29.5, HW: 27.5, MRL: 10.5 };
@@ -62,14 +63,17 @@ function blob(w, h, r, blur) {
 }
 const drawBlob = (g, x, y, w, h, r, blur, a) => { const b = blob(w, h, r, blur); g.globalAlpha = a; g.drawImage(b, x - b.m, y - b.m, w + 2 * b.m, h + 2 * b.m); g.globalAlpha = 1; };
 
-function treads(g, p, L, Wd, ph, ll) {
-  const dark = '#22231c', link = '#4c4d42', hi = shade('#6a6b5c', facet(ll, 0, -1));
+// chrome: cromature lucide su cingoli e cerchi (livrea dal grado di Veterano).
+function treads(g, p, L, Wd, ph, ll, chrome) {
+  const dark = '#22231c', link = chrome ? '#8f979e' : '#4c4d42', hi = chrome ? '#f4f7f9' : shade('#6a6b5c', facet(ll, 0, -1));
+  const hub = chrome ? '#e8edf1' : '#7a776a', spr = chrome ? '#dfe5ea' : '#5a5a4e', idl = chrome ? '#c9d0d6' : '#4e4e44';
   if (p === 'W' || p === 'HT') {
     const xs = p === 'HT' ? [L / 2 - 6] : L > 24 ? [-L / 2 + 1, -L / 2 + 7.5, L / 2 - 12.5, L / 2 - 6] : L > 16 ? [-L / 2 + 1, -2.5, L / 2 - 6] : [-L / 2 + 1, L / 2 - 6];
     for (const sx of xs) for (const sy of [-Wd / 2 - 2.4, Wd / 2 - 0.8]) {
       g.fillStyle = dark; rr(g, sx, sy, 5.4, 3.2, 1.3); g.fill();
       g.fillStyle = '#3a3b32'; for (let x = sx + 0.4 + (ph * 0.8 % 1.6); x < sx + 5.2; x += 1.6) g.fillRect(x, sy + 0.25, 0.6, 2.7);
-      g.fillStyle = '#7a776a'; g.beginPath(); g.arc(sx + 2.7, sy + 1.6, 0.8, 0, 7); g.fill();
+      g.fillStyle = hub; g.beginPath(); g.arc(sx + 2.7, sy + 1.6, chrome ? 1.05 : 0.8, 0, 7); g.fill();
+      if (chrome) { g.fillStyle = '#5d646b'; g.beginPath(); g.arc(sx + 2.7, sy + 1.6, 0.4, 0, 7); g.fill(); g.fillStyle = '#fff'; g.fillRect(sx + 2.1, sy + 0.9, 0.5, 0.5); }
       g.fillStyle = hi; g.fillRect(sx + 0.6, sy + 0.15, 4.2, 0.45);
     }
     if (p === 'W') return;
@@ -81,15 +85,19 @@ function treads(g, p, L, Wd, ph, ll) {
     for (let x = x0 + 0.7 + (ph * 1.1 % 2.2); x < x0 + len - 1.2; x += 2.2) { g.fillStyle = link; g.fillRect(x, sy + 0.35, 1.4, tw - 0.7); g.fillStyle = 'rgba(255,250,230,0.16)'; g.fillRect(x, sy + 0.35, 0.4, tw - 0.7); }
     g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect(x0, sy + tw / 2 - 0.35, len, 0.7);
     // ruota motrice davanti con il mozzo, tenditore dietro
-    g.fillStyle = '#5a5a4e'; g.beginPath(); g.arc(x0 + len - 1.6, sy + tw / 2, tw * 0.42, 0, 7); g.fill(); g.fillStyle = '#2a2a24'; g.beginPath(); g.arc(x0 + len - 1.6, sy + tw / 2, tw * 0.18, 0, 7); g.fill();
-    g.fillStyle = '#4e4e44'; g.beginPath(); g.arc(x0 + 1.6, sy + tw / 2, tw * 0.36, 0, 7); g.fill();
-    g.fillStyle = hi; g.globalAlpha = 0.6; g.fillRect(x0 + 1, sy + 0.15, len - 2, 0.45); g.globalAlpha = 1;
+    g.fillStyle = spr; g.beginPath(); g.arc(x0 + len - 1.6, sy + tw / 2, tw * 0.42, 0, 7); g.fill(); g.fillStyle = '#2a2a24'; g.beginPath(); g.arc(x0 + len - 1.6, sy + tw / 2, tw * 0.18, 0, 7); g.fill();
+    g.fillStyle = idl; g.beginPath(); g.arc(x0 + 1.6, sy + tw / 2, tw * 0.36, 0, 7); g.fill();
+    if (chrome) { g.fillStyle = '#fff'; g.fillRect(x0 + len - 2.3, sy + tw / 2 - 1, 0.6, 0.6); g.fillRect(x0 + 1, sy + tw / 2 - 0.9, 0.5, 0.5); }
+    g.fillStyle = hi; g.globalAlpha = chrome ? 0.95 : 0.6; g.fillRect(x0 + 1, sy + 0.15, len - 2, chrome ? 0.6 : 0.45); g.globalAlpha = 1;
     g.fillStyle = 'rgba(96,78,52,0.35)'; g.fillRect(x0 + 1, sy + tw - 1.1, len - 2, 0.9); // fango sul bordo
   }
 }
 // Scafo rivolto verso +x. ll: luce locale; ph: fase delle maglie (0, 1); sh: spostamento dell'ombra (null = senza ombre,
-// [0, 0] = solo l'ombra di contatto).
-function drawHull(g, d, owner, ll, ph, sh) {
+// [0, 0] = solo l'ombra di contatto). rank, lite: livrea del grado (livery.js) e sua versione per la qualità minima.
+function bandPath(g, L) { g.beginPath(); g.moveTo(L / 2 - 4, -1.8); g.lineTo(L / 2 - 2.6, 0); g.lineTo(L / 2 - 4, 1.8); g.lineTo(L / 2 - 4.9, 1.8); g.lineTo(L / 2 - 3.5, 0); g.lineTo(L / 2 - 4.9, -1.8); g.closePath(); }
+// Fascia di riconoscimento sullo spiovente davanti: chiara per la Brigata, scura per il Direttorio.
+function band(g, L, owner) { g.fillStyle = owner === P ? 'rgba(246,231,192,0.85)' : 'rgba(30,26,24,0.85)'; bandPath(g, L); g.fill(); }
+function drawHull(g, d, owner, ll, ph, sh, rank = 0, lite = false) {
   const C = CHASSIS[d.c], L = C.size[0], Wd = C.size[1], col = PAL[owner];
   if (sh) {
     // ombra morbida verso dove cade la luce e ombra di contatto stretta sotto lo scafo
@@ -97,7 +105,7 @@ function drawHull(g, d, owner, ll, ph, sh) {
     drawBlob(g, -L / 2 - 1 + sh[0] * 0.25, -Wd / 2 - 2.6 + sh[1] * 0.25, L + 2, Wd + 5.2, 2.5, 0.8, 0.55);
   }
   if (d.p === 'V') { g.fillStyle = '#2d302b'; g.beginPath(); g.ellipse(0, 0, L / 2 + 3, Wd / 2 + 3, 0, 0, 7); g.fill(); g.strokeStyle = 'rgba(220,230,215,0.35)'; g.lineWidth = 1; g.stroke(); }
-  else treads(g, d.p, L, Wd, ph, ll);
+  else treads(g, d.p, L, Wd, ph, ll, rank >= 2 && !lite);
   bevelBox(g, -L / 2, -Wd / 2, L, Wd, 2.2, col.body, ll);
   // macchie mimetiche
   g.save(); g.beginPath(); g.rect(-L / 2 + 2.2, -Wd / 2 + 2.2, L - 4.4, Wd - 4.4); g.clip();
@@ -111,9 +119,13 @@ function drawHull(g, d, owner, ll, ph, sh) {
   g.fillStyle = '#4f5a3a'; g.fillRect(-L / 2 + 1.2 + L * 0.55, Wd / 2 - 1.8, 2, 1.5); g.fillRect(-L / 2 + 3.6 + L * 0.55, Wd / 2 - 1.8, 2, 1.5);
   g.fillStyle = '#f4ead0'; g.fillRect(L / 2 - 1.4, -Wd / 2 + 1.1, 1, 1.7); g.fillRect(L / 2 - 1.4, Wd / 2 - 2.8, 1, 1.7);
   g.strokeStyle = '#2a2925'; g.lineWidth = 0.3; g.strokeRect(L / 2 - 1.5, -Wd / 2 + 1, 1.2, 1.9); g.strokeRect(L / 2 - 1.5, Wd / 2 - 2.9, 1.2, 1.9);
-  // fascia di riconoscimento sullo spiovente davanti: chiara per la Brigata, scura per il Direttorio
-  g.fillStyle = owner === P ? 'rgba(246,231,192,0.85)' : 'rgba(30,26,24,0.85)';
-  g.beginPath(); g.moveTo(L / 2 - 4, -1.8); g.lineTo(L / 2 - 2.6, 0); g.lineTo(L / 2 - 4, 1.8); g.lineTo(L / 2 - 4.9, 1.8); g.lineTo(L / 2 - 3.5, 0); g.lineTo(L / 2 - 4.9, -1.8); g.closePath(); g.fill();
+  band(g, L, owner);
+  if (rank > 0) {
+    if (d.p === 'V' && rank >= 2 && !lite) { g.strokeStyle = '#eef2f5'; g.lineWidth = 0.9; g.beginPath(); g.ellipse(0, 0, L / 2 + 2.6, Wd / 2 + 2.6, 0, 0, 7); g.stroke(); }
+    hullLivery(g, d, owner, ll, rank, lite);
+    // la fascia del lato torna sopra la livrea, con un filo scuro (o chiaro) attorno per staccarla da strisce e vernice
+    if (!lite) { g.strokeStyle = owner === P ? 'rgba(40,24,6,0.7)' : 'rgba(240,236,228,0.7)'; g.lineWidth = 0.5; bandPath(g, L); g.stroke(); band(g, L, owner); }
+  }
 }
 
 /* ---------- torretta ---------- */
@@ -123,7 +135,7 @@ const TUR = {
   MG: ['r', 4, [11, 1.4, 2]], HMG: ['b', 4.4, [15, 2.3, 1]], CN: ['b', 5, [16.5, 2.8, 1]], CN75: ['b', 6.4, [22.5, 3.2, 1]], CN105: ['w', 7, [29.5, 3.4, 1]],
   FL: ['r', 3.8, [13, 2, 1]], RP: ['r', 4, [13, 1.4, 1]], RK: ['l', 5.2, [7, 0, 3]], AT: ['r', 4.2, [12.6, 2.6, 1]], MO: ['r', 5, [10, 5, 1]], HW: ['w', 6.2, [27.5, 2.8, 1]], MRL: ['l', 7, [10.5, 0, 6]],
 };
-function drawTurret(g, w, owner, sc, ll, shadow) {
+function drawTurret(g, w, owner, sc, ll, shadow, rank = 0, lite = false) {
   const [kind, R, [bl, bw, nb]] = TUR[w] || TUR.CN, col = PAL[owner];
   g.save(); g.scale(sc, sc);
   if (shadow) drawBlob(g, -ll[0] * 1.5 - R - 0.8, -ll[1] * 1.5 - R - 0.8, 2 * R + 1.6, 2 * R + 1.6, R, 1, 0.35);
@@ -170,7 +182,14 @@ function drawTurret(g, w, owner, sc, ll, shadow) {
     g.strokeStyle = '#2a2925'; g.lineWidth = 0.35; g.beginPath(); g.moveTo(-R * 0.75, R * 0.55); g.lineTo(-R * 0.75 - 4, R * 0.55 + 1); g.stroke();
     g.fillStyle = '#2a2925'; g.beginPath(); g.arc(-R * 0.75, R * 0.55, 0.5, 0, 7); g.fill();
   }
+  if (rank > 0) turretLivery(g, { kind, R, bl, bw, nb }, owner, ll, rank, lite);
   g.restore();
+}
+// Punta dell'antenna nel riferimento della torretta (per la coda di volpe); i lanciatori a cassone non hanno antenna:
+// la coda sta sullo spigolo dietro.
+export function antennaTip(w, c) {
+  const [kind, R] = TUR[w] || TUR.CN, sc = TURRET_SC[c] || 1;
+  return kind === 'l' ? [-R * 0.8 * sc, R * sc] : [(-R * 0.75 - 4) * sc, (R * 0.55 + 1) * sc];
 }
 
 /* ---------- genieri ---------- */
@@ -191,10 +210,22 @@ export function truckArm(g, owner, a) {
 
 /* ---------- sagome già pronte ---------- */
 const sprites = new Map(), MAX_SPRITES = 2400, BUDGET = 24;
+// Sagome con la livrea di un grado: stessa cache, con un tetto a parte (oltre, si buttano solo quelle e si ricuociono
+// quelle in vista, poche per fotogramma: intanto il mezzo si vede con la sagoma di serie).
+const liveries = new Set(), MAX_LIVERIES = 700, LIVERY_BUDGET = 10;
+let madeL = 0;
+export const liveryCount = () => liveries.size;
+// Variante della livrea nella chiave della sagoma: niente per le reclute; in qualità minima (lite) solo l'asso ha
+// qualcosa (i bordi dorati).
+const lv = (rank, lite) => (!(rank > 0) || (lite && rank < 3) ? '' : `:r${Math.min(3, rank)}${lite ? 'l' : ''}`);
+function liveryRoom(key) {
+  if (liveries.size >= MAX_LIVERIES) { for (const k of liveries) sprites.delete(k); liveries.clear(); }
+  liveries.add(key); madeL++;
+}
 // Sagome nuove create in questo fotogramma: oltre BUDGET si usa intanto quella con la luce fissa (aq = 1), così un
 // cambio di livello o una battaglia appena iniziata non bloccano un fotogramma per creare centinaia di sagome.
 let made = 0;
-export function spriteFrame() { made = 0; }
+export function spriteFrame() { made = 0; madeL = 0; }
 // Tela della sagoma: il riquadro [x0, y0, x1, y1] in unità del mondo (origine sul perno) a scala k; si ritaglia
 // stretto sul disegno, perché ogni pixel trasparente costa quando la sagoma si copia ruotata. Di notte la tinta della
 // luna e il contorno. Si copia con drawImage(s.c, s.x, s.y, s.w, s.h).
@@ -202,7 +233,7 @@ function sprite(key, [x0, y0, x1, y1], k, night, owner, draw) {
   let s = sprites.get(key);
   if (s) return s;
   made++;
-  if (sprites.size > MAX_SPRITES) sprites.clear();
+  if (sprites.size > MAX_SPRITES) { sprites.clear(); liveries.clear(); }
   const c = document.createElement('canvas'); c.width = Math.ceil((x1 - x0) * k); c.height = Math.ceil((y1 - y0) * k);
   const g = c.getContext('2d'); g.setTransform(k, 0, 0, k, -x0 * k, -y0 * k);
   if (!night) draw(g, true);
@@ -222,18 +253,24 @@ function sprite(key, [x0, y0, x1, y1], k, night, owner, draw) {
   s = { c, x: x0, y: y0, w: c.width / k, h: c.height / k }; sprites.set(key, s);
   return s;
 }
-const bucket = (a, n) => ((Math.round(a / (Math.PI * 2) * n) % n) + n) % n;
+export const bucket = (a, n) => ((Math.round(a / (Math.PI * 2) * n) % n) + n) % n;
+// Per le sagome cotte fuori da questo file (hero.js): stessa cache, stesso tetto, stessa tinta della notte.
+export { sprite as bakeSprite, drawBlob, rr as roundRect, liveryRoom, lv as liveryKey };
+export const spriteBusy = () => made >= BUDGET || madeL >= LIVERY_BUDGET;
+export const hasSprite = key => sprites.has(key);
 // Scafo per mezzo: luce cotta per una di aq direzioni (aq = 1: luce fissa sul mezzo, senza ombra spostata).
-export function hullSprite(d, owner, ang, dist, k, aq, night) {
-  const b = bucket(ang, aq), ph = Math.floor(((dist % 2.2) + 2.2) % 2.2 / 1.1) & 1, key = `h${d.c}${d.p}${owner}:${aq}.${b}:${ph}:${k}:${night ? 1 : 0}`;
+export function hullSprite(d, owner, ang, dist, k, aq, night, rank = 0, lite = false) {
+  const b = bucket(ang, aq), ph = Math.floor(((dist % 2.2) + 2.2) % 2.2 / 1.1) & 1, L0 = lv(rank, lite), key = `h${d.c}${d.p}${owner}:${aq}.${b}:${ph}:${k}:${night ? 1 : 0}${L0}`;
   const s0 = sprites.get(key); if (s0) return s0;
-  if (aq > 1 && made >= BUDGET) return hullSprite(d, owner, ang, dist, k, 1, night);
+  if (L0) { if (madeL >= LIVERY_BUDGET || made >= BUDGET) return hullSprite(d, owner, ang, dist, k, aq, night); liveryRoom(key); }
+  else if (aq > 1 && made >= BUDGET) return hullSprite(d, owner, ang, dist, k, 1, night);
   const C = CHASSIS[d.c], L = C.size[0], Wd = C.size[1], aB = b / aq * Math.PI * 2, ll = localLight(aq > 1 ? aB : 0);
   const so = aq > 1 ? 4 * SUN.len : 0, c = Math.cos(-aB), s = Math.sin(-aB), sh = [(SUN.sx * c - SUN.sy * s) * so, (SUN.sx * s + SUN.sy * c) * so];
   // ingombro: cingoli o ruote, ombra di contatto, più l'ombra morbida spostata (se la luce è cotta per direzione)
-  const m = so ? 3.5 : 0.9, hx = L / 2 + (d.p === 'V' ? 3 : 2.7), hy = Wd / 2 + Math.max(d.p === 'TR' ? 4.8 : d.p === 'W' ? 2.4 : d.p === 'V' ? 3 : 3.2, 4);
+  // (l'asso ha in più il doppio scarico, che sporge dietro)
+  const m = so ? 3.5 : 0.9, hx = L / 2 + (d.p === 'V' ? 3 : 2.7) + (L0 && rank >= 3 ? 0.8 : 0), hy = Wd / 2 + Math.max(d.p === 'TR' ? 4.8 : d.p === 'W' ? 2.4 : d.p === 'V' ? 3 : 3.2, 4);
   const box = [-hx + Math.min(0, sh[0]) - m, -hy + Math.min(0, sh[1]) - m, hx + Math.max(0, sh[0]) + m, hy + Math.max(0, sh[1]) + m];
-  return sprite(key, box, k, night, owner, (g, shadow) => drawHull(g, d, owner, ll, ph, shadow ? sh : null));
+  return sprite(key, box, k, night, owner, (g, shadow) => drawHull(g, d, owner, ll, ph, shadow ? sh : null, L0 ? rank : 0, lite));
 }
 // Ingombro della torretta a scala sc, con un margine per l'ombra e il contorno.
 function turretBox(w, sc, m) {
@@ -242,12 +279,13 @@ function turretBox(w, sc, m) {
   const front = Math.max(bl + 1, kind === 'l' ? R * 1.6 + 1 : R + 1), half = Math.max(R, w === 'FL' ? 4.8 : 0) + 1;
   return [-(back + m) * sc, -(half + m) * sc, (front + m) * sc, (half + m) * sc];
 }
-export function turretSprite(w, c, owner, tang, k, aq, night) {
-  const b = bucket(tang, aq), key = `t${w}${c}${owner}:${aq}.${b}:${k}:${night ? 1 : 0}`;
+export function turretSprite(w, c, owner, tang, k, aq, night, rank = 0, lite = false) {
+  const b = bucket(tang, aq), L0 = lv(rank, lite), key = `t${w}${c}${owner}:${aq}.${b}:${k}:${night ? 1 : 0}${L0}`;
   const s0 = sprites.get(key); if (s0) return s0;
-  if (aq > 1 && made >= BUDGET) return turretSprite(w, c, owner, tang, k, 1, night);
+  if (L0) { if (madeL >= LIVERY_BUDGET || made >= BUDGET) return turretSprite(w, c, owner, tang, k, aq, night); liveryRoom(key); }
+  else if (aq > 1 && made >= BUDGET) return turretSprite(w, c, owner, tang, k, 1, night);
   const sc = TURRET_SC[c] || 1, ll = localLight(aq > 1 ? b / aq * Math.PI * 2 : 0);
-  return sprite(key, turretBox(w, sc, aq > 1 ? 2.5 : 0.8), k, night, owner, (g, shadow) => drawTurret(g, w, owner, sc, ll, shadow && aq > 1));
+  return sprite(key, turretBox(w, sc, aq > 1 ? 2.5 : 0.8), k, night, owner, (g, shadow) => drawTurret(g, w, owner, sc, ll, shadow && aq > 1, L0 ? rank : 0, lite));
 }
 export function truckSprite(owner, ang, k, aq, night) {
   const b = bucket(ang, aq), aB = b / aq * Math.PI * 2, ll = localLight(aq > 1 ? aB : 0), so = aq > 1 ? 4 * SUN.len : 0, c = Math.cos(-aB), s = Math.sin(-aB);
@@ -262,10 +300,10 @@ export function towerTurret(w, owner, sc, tang, k, aq, night) {
 
 /* ---------- icone del pannello ---------- */
 // Il mezzo disegnato direttamente (senza sagome già pronte), per le tessere e l'anteprima di Progetta.
-export function drawVehicle(g, d, col, ang, tang, moving, t) {
+export function drawVehicle(g, d, col, ang, tang, moving, t, rank = 0) {
   const owner = col === PAL[1] ? 1 : 0, so = 4 * SUN.len, c = Math.cos(-ang), s = Math.sin(-ang);
-  g.save(); g.rotate(ang); drawHull(g, d, owner, localLight(ang), moving ? Math.floor(t * 12) & 1 : 0, [(SUN.sx * c - SUN.sy * s) * so, (SUN.sx * s + SUN.sy * c) * so]); g.restore();
-  g.save(); g.rotate(tang); drawTurret(g, d.w, owner, TURRET_SC[d.c] || 1, localLight(tang), true); g.restore();
+  g.save(); g.rotate(ang); drawHull(g, d, owner, localLight(ang), moving ? Math.floor(t * 12) & 1 : 0, [(SUN.sx * c - SUN.sy * s) * so, (SUN.sx * s + SUN.sy * c) * so], rank); g.restore();
+  g.save(); g.rotate(tang); drawTurret(g, d.w, owner, TURRET_SC[d.c] || 1, localLight(tang), true, rank); g.restore();
 }
 
 /* ---------- relitti ---------- */
@@ -286,8 +324,26 @@ export function drawWreck(g, w, t, TF, lo) {
   else bevelBox(g, -w.L / 2, -w.W / 2, w.L, w.W, 2, hex, localLight(w.a));
   g.fillStyle = 'rgba(0,0,0,0.45)'; g.fillRect(-w.L / 2 + 2, -1.5, w.L * 0.55, 1.4);
   if (w.tl) { g.beginPath(); g.arc(0, 0, 4.5, 0, 7); g.fill(); }
-  if (w.t < w.life * 0.3) {
-    const h = 1 - w.t / (w.life * 0.3);
+  if (w.rank >= 2 && !lo) {
+    // relitto di un veterano: le cromature di cingoli e cerchi restano lucide; quello di un asso conserva anche
+    // l'alettone (annerito, con le paratie ancora dorate o cromate), il doppio scarico e il bordo
+    const st = STYLE[w.owner === P ? 0 : 1];
+    g.fillStyle = 'rgba(236,241,245,0.75)';
+    if (w.tr) { g.fillRect(-w.L / 2, -w.W / 2 - 2.8, w.L, 0.6); g.fillRect(-w.L / 2, w.W / 2 + 2.2, w.L, 0.6); }
+    else for (const sx of [-w.L / 2 + 1, w.L / 2 - 6]) for (const sy of [-w.W / 2 - 0.5, w.W / 2 + 0.5]) { g.beginPath(); g.arc(sx + 2.5, sy, 1, 0, 7); g.fill(); }
+    if (w.rank >= 3) {
+      g.fillStyle = '#b9c1c8'; g.fillRect(-w.L / 2 - 2.4, -w.W / 2 + 2.3, 3.6, 1.5); g.fillRect(-w.L / 2 - 2.4, w.W / 2 - 3.8, 3.6, 1.5);
+      g.fillStyle = 'rgba(0,0,0,0.4)'; g.fillRect(-w.L / 2 - 0.7, -w.W / 2 - 0.2, 3.1, w.W + 1.6);
+      g.fillStyle = '#24211c'; g.fillRect(-w.L / 2 - 1.5, -w.W / 2 - 1, 3, w.W + 2);
+      g.fillStyle = 'rgba(255,255,255,0.22)'; g.fillRect(-w.L / 2 - 0.2, -w.W / 2 - 0.6, 0.5, w.W + 1.2);
+      g.fillStyle = st.trim; g.fillRect(-w.L / 2 - 1.7, -w.W / 2 - 1.2, 3.4, 0.9); g.fillRect(-w.L / 2 - 1.7, w.W / 2 + 0.3, 3.4, 0.9);
+      g.strokeStyle = st.trimLo; g.lineWidth = 0.6; g.strokeRect(-w.L / 2 + 0.4, -w.W / 2 + 0.4, w.L - 0.8, w.W - 0.8);
+    }
+    g.fillStyle = 'rgba(0,0,0,0.45)';
+  }
+  const bf = w.life * (w.burn || 0.3);
+  if (w.t < bf) {
+    const h = 1 - w.t / bf;
     g.fillStyle = '#ff8a3a'; g.globalAlpha = fade * h * (0.6 + 0.4 * Math.sin(t * 9 + w.ph));
     g.beginPath(); g.arc(-1, 1, 1.6, 0, 7); g.arc(3, -1, 1.1, 0, 7); g.arc(-w.L * 0.3, 0, 1, 0, 7); g.fill();
   }

@@ -34,6 +34,12 @@
   --ok: #5f7d38;
   --ok-hi: #b8dc8c;
   --no: #5a2420;
+  /* piano 10: galloni dei gradi (Brigata, Direttorio) e bordo del pulsante della Macchina di Villo */
+  --rank-p: #ffd35a;
+  --rank-p-hi: #fff0a8;
+  --rank-e: #ff9c8c;
+  --rank-e-hi: #ffd2c8;
+  --hero-rule: rgba(190, 198, 204, 0.6);
   --f-display: 'Stardos Stencil', Impact, 'Arial Black', sans-serif;
   --f-body: 'IBM Plex Sans Condensed', 'Arial Narrow', 'Roboto Condensed', sans-serif;
   --f-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
@@ -246,6 +252,17 @@ button { font: inherit; color: inherit; }
 .comp { list-style: none; margin: 6px 0 0; padding: 0; font-size: 12px; display: grid; gap: 2px; }
 .comp li { display: flex; justify-content: space-between; gap: 8px; }
 .comp b { font-family: var(--f-mono); font-weight: 500; color: var(--amber-hi); }
+/* Veterani: gallone del grado (SVG in linea) nel pannello, soprannome degli assi */
+.rk { display: inline-block; vertical-align: -2px; margin-right: 5px; fill: none; stroke: var(--rank-p); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
+.rk.e { stroke: var(--rank-e); }
+.rk .st { fill: var(--rank-p-hi); stroke: none; }
+.rk.e .st { fill: var(--rank-e-hi); }
+.kv .rkrow span:last-child { font-family: var(--f-body); font-weight: 600; white-space: nowrap; }
+.nick { margin: 2px 0 0; font-family: var(--f-display); font-size: 16px; letter-spacing: 0.02em; color: var(--rank-p); }
+/* Pulsante della Macchina di Villo: dal carrozziere mostra il conto alla rovescia */
+#touchbar .btn.hero { border-color: var(--hero-rule); }
+#touchbar .btn.hero.down { color: var(--dim); border-style: dashed; }
+#touchbar .btn.hero.down span { font-family: var(--f-mono); font-variant-numeric: tabular-nums; color: var(--warn); }
 
 .tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid var(--rule); }
 .tabs button {
@@ -351,6 +368,9 @@ button { font: inherit; color: inherit; }
 .brief { margin: 0; font-size: 15px; line-height: 1.55; max-width: 62ch; color: var(--paper); }
 .diff { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .diff .lbl { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); margin-right: 4px; }
+/* riga «Meteo» del menu: quattro scelte su una riga sola */
+.diff.wxsel { gap: 4px; }
+.diff.wxsel .btn { padding-left: 7px; padding-right: 7px; letter-spacing: 0; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .audioset { display: flex; gap: 8px 10px; flex-wrap: wrap; align-items: center; font-size: 12.5px; color: var(--dim); }
 .audioset .lbl { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; margin-right: 2px; }

@@ -2,7 +2,7 @@
 // La stessa IA può guidare il lato del giocatore (aiTick(P), con S.autoplay): stato in S.aiP, tempi in AI_PLAYER;
 // in missione persegue l'obiettivo (in «tieni le pompe» e «resisti» difende e non attacca).
 import { TILE, MW, P, E, STRUCTS, CHASSIS, PROPS, WEAPONS, TECH_BY, AI_TECH, AI_TECH_P, AI_STALL, AI_ARMY, AI_RECALL, AI_PLAYER, BUILDER, UNIT_CAP } from './data.js';
-import { S, occ, idx, deposits, explored, emit, dStats, armorOf, enemyCfg, makeUnit, homeOf } from './world.js';
+import { S, occ, idx, deposits, explored, emit, dStats, armorOf, enemyCfg, makeUnit, homeOf, heroLevel } from './world.js';
 import { passable, nearestFree, reachMap, reachableAdj, formation } from './path.js';
 import { cmdMove, cmdBuild, canPlace, placeStruct, enqueue, techAvail, startResearch, demolish, unitCount } from './orders.js';
 import { ftile, gridRef } from './util.js';
@@ -114,7 +114,8 @@ function foeTarget(foe, fx, fy) {
 }
 // Valore di un gruppo di mezzi: somma dei costi dei progetti. foeWorth (lo usa solo il giocatore guidato dall'IA):
 // l'esercito del lato più le sue torrette e i suoi bunker, contati per AI_PLAYER.defW volte il loro costo.
-const unitWorth = u => u.builder ? 0 : CHASSIS[u.d.c].cost + PROPS[u.d.p].cost + WEAPONS[u.d.w].cost;
+// La Macchina di Villo vale quanto dice il suo livello (HERO.levels[].worth).
+const unitWorth = u => u.builder ? 0 : u.hero ? heroLevel().worth : CHASSIS[u.d.c].cost + PROPS[u.d.p].cost + WEAPONS[u.d.w].cost;
 const worth = list => list.reduce((a, u) => a + unitWorth(u), 0);
 function foeWorth(foe) {
   let v = 0;
@@ -294,8 +295,9 @@ export function aiTick(o = E) {
   // di livello più alto): parte subito un'ondata con tutti i difensori, così l'esercito si consuma e la produzione
   // riprende con parti nuove. Se non ha difensori (sono tutti all'attacco e nessuno cade), richiama in base i mezzi
   // superati più vecchi, al massimo AI_RECALL alla volta, e li smonta al punto di raduno (role 'home').
-  const best = bestTier(o);
-  const atCap = !guard && armyN >= AI_ARMY && designTier(army.reduce((a, u) => u.id < a.id ? u : a).d) < best;
+  // La Macchina di Villo non è mai «superata»: non conta come mezzo più vecchio e non viene richiamata né smontata.
+  const best = bestTier(o), line = army.filter(u => !u.hero);
+  const atCap = !guard && armyN >= AI_ARMY && line.length > 0 && designTier(line.reduce((a, u) => u.id < a.id ? u : a).d) < best;
   const renew = atCap && def.length > 0;
   for (const u of army) if (u.role === 'home' && u.order.t === 'idle') {
     if (Math.hypot(u.x - rally[0], u.y - rally[1]) < 4 * TILE) { u.dead = true; idx.delete(u.id); }
@@ -303,7 +305,7 @@ export function aiTick(o = E) {
   }
   if (atCap && !def.length) {
     const home = army.filter(u => u.role === 'home').length;
-    const old = army.filter(u => u.role === 'atk' && designTier(u.d) < best).sort((a, b) => a.id - b.id).slice(0, Math.max(0, AI_RECALL - home));
+    const old = line.filter(u => u.role === 'atk' && designTier(u.d) < best).sort((a, b) => a.id - b.id).slice(0, Math.max(0, AI_RECALL - home));
     for (const u of old) { u.role = 'home'; cmdMove([u], rally[0], rally[1], false); }
   }
   // Il giocatore guidato dall'IA attacca solo se i difensori valgono (in gasolio) almeno AI_PLAYER.edge volte

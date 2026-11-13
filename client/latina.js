@@ -1,6 +1,6 @@
 // Latina con un sorriso: solo nella schermaglia sulla mappa di Latina (S.map === 'latina', fuori dalla campagna).
 // Testi del rapporto finale (uno di tre, scelto una volta per partita) e battute brevi in partita, nate da eventi che
-// esistono già (strade, ponti, mezzi distrutti in città, pompe, fabbriche nemiche): nessuna regola di gioco.
+// esistono già (strade, ponti, mezzi distrutti in città, pompe, fabbriche nemiche, pioggia): nessuna regola di gioco.
 // Ogni battuta compare al massimo una volta per partita, al massimo una ogni QUIP_GAP secondi di gioco e solo se tra
 // gli avvisi in vista non ce n'è uno importante; se non può uscire subito aspetta il suo turno.
 import { MW, MH, P, WATER, CITY, ROAD, S, terr, ftile } from '../engine/index.js';
@@ -42,6 +42,7 @@ const QUIPS = {
   cityKill: 'Un altro posto auto liberato in centro.',
   pump: 'Gasolio della bonifica: costa meno che al distributore.',
   factory: 'Il Direttorio chiede un rimborso per le sospensioni.',
+  rain: 'Con la pioggia le buche diventano laghetti.',
 };
 const QUIP_GAP = 90;
 // stato della partita: battute già uscite, in attesa, ultima uscita; mezzi visti fuori strada; scelta del rapporto
@@ -72,6 +73,8 @@ export function latinaBuilt(d) { if (isLatina() && d.owner === P && d.type === '
 // momento e non ci sono avvisi importanti, esce la prima battuta in attesa. say(testo) la mostra.
 export function latinaTick(say) {
   if (!isLatina() || S.phase !== 'play') return;
+  // solo con la pioggia (anche quando arriva a partita iniziata, con il meteo variabile)
+  if (S.weather === 'rain') want('rain');
   const needRoad = !st.done.has('road') && !st.pending.includes('road'), needBridge = !st.done.has('bridge') && !st.pending.includes('bridge');
   if (needRoad || needBridge) for (const u of S.ents) {
     if (u.dead || u.kind !== 'unit' || u.owner !== P) continue;

@@ -13,29 +13,31 @@ import { scorchMark, craterMark, stampTracks } from './decals.js';
 import { isWaterAt } from './terrain.js';
 import { glow, GLOW_R, GLOW_W, GLOW_G, FB, FB2 } from './light.js';
 import { WIND, NIGHT } from './look.js';
+import { burnK } from './weather.js';
+import { unitDims } from './dims.js';
 
 const MAXP_RM = 320, MAX_WRECKS = [12, 20, 40, 60], MAX_RUINS = 10;
 // Relitti ed edifici crollati restano sul campo: durata in secondi per livello di qualità (minima … alta).
 const WRECK_LIFE = [9, 11, 18, 24], RUIN_LIFE = [12, 14, 24, 30];
 export const ruins = [];
 // Densità degli effetti: «Riduci movimento» la dimezza, il livello di qualità la riduce ancora.
-const dens = () => (reducedMotion() ? 0.5 : 1) * fxq.q.dens;
+export const dens = () => (reducedMotion() ? 0.5 : 1) * fxq.q.dens;
 const maybe = k => k >= 1 || Math.random() < k;
 export const clock = () => performance.now() / 1000;
 // Nuova particella, se c'è posto (il limite tiene basso il costo per fotogramma).
-function addP(k, x, y, vx, vy, life, s, vz) {
+export function addP(k, x, y, vx, vy, life, s, vz) {
   const parts = fxs.parts, max = fxq.q.maxP; if (parts.length >= (reducedMotion() ? Math.min(MAXP_RM, max) : max)) return;
   parts.push({ k, x, y, vx, vy, life, max: life, s, z: 0, vz: vz || 0 });
 }
 export function nearView(x, y, m) { const vw = view.cw / cam.z, vh = view.ch / cam.z; return x > cam.x - m && x < cam.x + vw + m && y > cam.y - m && y < cam.y + vh + m; }
 // Il giocatore vede questo punto? Gli effetti del nemico nella nebbia non si mostrano.
-function seenAt(x, y) { const tx = ftile(x), ty = ftile(y); return tx >= 0 && ty >= 0 && tx < MW && ty < MH && vis && vis[tx + ty * MW] === 1; }
+export function seenAt(x, y) { const tx = ftile(x), ty = ftile(y); return tx >= 0 && ty >= 0 && tx < MW && ty < MH && vis && vis[tx + ty * MW] === 1; }
 const boomKind = e => e.kind || (e.size >= 2 ? 'struct' : Math.abs(e.size - 0.9) < 0.01 ? 'unit' : 'shot');
 // Mezzo o edificio appena distrutto: è ancora nell'elenco (il motore lo toglie a fine passo), segnato come morto.
 function deadAt(x, y, kind) { for (const e of S.ents) if (e.dead && e.kind === kind && e.x === x && e.y === y) return e; return null; }
 // Scossa dello schermo: solo se accesa nei Comandi, senza «riduci movimento» e non in qualità minima.
 export const shakeAllowed = () => shakeOn() && !reducedMotion() && fxq.q.shake;
-function shake(x, y, amp) {
+export function shake(x, y, amp) {
   if (!shakeAllowed() || amp <= 0) return;
   const hw = view.cw / cam.z / 2, hh = view.ch / cam.z / 2;
   const f = Math.max(0, 1 - Math.hypot(x - cam.x - hw, y - cam.y - hh) / (Math.max(hw, hh) * 1.6));
@@ -58,12 +60,15 @@ function boom(x, y, size, kind) {
     // relitto con la sagoma del mezzo: brucia, poi annerisce e sbiadisce; la torretta salta in aria e ricade
     const u = deadAt(x, y, 'unit'), v = u && poseOf(u.id), sh = wreckShape(u), a = v ? v.a : u ? u.ang : Math.random() * 7;
     while (fxs.wrecks.length >= MAX_WRECKS[lvl]) fxs.wrecks.shift();
-    const fly = u && !u.builder && !rm && Q.glow ? { vx: (Math.random() - 0.5) * 50, vy: (Math.random() - 0.5) * 50, vz: 120 + Math.random() * 60, spin: (Math.random() - 0.5) * 9, dur: 0 } : null;
+    const fly = u && !u.builder && !u.hero && !rm && Q.glow ? { vx: (Math.random() - 0.5) * 50, vy: (Math.random() - 0.5) * 50, vz: 120 + Math.random() * 60, spin: (Math.random() - 0.5) * 9, dur: 0 } : null;
     if (fly) fly.dur = 2 * fly.vz / 340;
     fxs.wrecks.push({
       x: v ? v.x : x, y: v ? v.y : y, a, L: sh.L, W: sh.W, tr: sh.p === 'W' || sh.p === 'V' ? 0 : 1,
-      ta: (Math.random() - 0.5) * 2.4, tx: (Math.random() - 0.5) * 4, tl: u && !u.builder ? 6 + sh.L * 0.35 : 0,
+      ta: (Math.random() - 0.5) * 2.4, tx: (Math.random() - 0.5) * 4, tl: u && !u.builder && !u.hero ? 6 + sh.L * 0.35 : 0,
       t: 0, life: WRECK_LIFE[lvl] * (rm ? 0.7 : 1), ph: Math.random() * 6, fly,
+      // burn: quota della vita in cui il relitto brucia (la metà sotto la pioggia); rank, owner: il relitto di un
+      // veterano conserva le cromature, quello di un asso anche l'alettone
+      burn: 0.3 * burnK(), rank: u && !u.builder ? u.rank || 0 : 0, owner: u ? u.owner : 0, hero: !!(u && u.hero),
     });
   } else if (kind === 'struct') {
     // edificio che crolla a fasi (structs.js): qui solo l'inizio, polvere e detriti arrivano in updParts
@@ -276,7 +281,7 @@ export function updParts(dt) {
     w.t += dt; if (w.t >= w.life) continue;
     fxs.wrecks[j++] = w;
     if (!nearView(w.x, w.y, 40)) continue;
-    const burning = w.t < w.life * 0.3;
+    const burning = w.t < w.life * (w.burn || 0.3);
     if (w.t < w.life * 0.7 && Math.random() < dt * (burning ? 6 : 2.5) * q) addP('dsmoke', w.x + (Math.random() - 0.5) * 6, w.y - 4, (Math.random() - 0.5) * 6, -22 - Math.random() * 14, 2.6 + Math.random(), 3.4 + Math.random() * 2);
     if (burning && Math.random() < dt * 9 * q) addP('fire', w.x + (Math.random() - 0.5) * 8, w.y + (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 8, -12 - Math.random() * 12, 0.45, 2.2);
     if (w.t < w.life * 0.6 && Math.random() < dt * (burning ? 4 : 1.4) * q) addP('smoke', w.x, w.y, 4 + Math.random() * 5, -8 - Math.random() * 8, 1.8, burning ? 3 : 2.4);
@@ -312,9 +317,11 @@ export function updParts(dt) {
     if (e.dead || !nearView(e.x, e.y, 40)) continue;
     if (ex && e.kind === 'unit' && !e.builder) {
       const v = poseOf(e.id), acc = v && v.acc > 20, mv = v && v.spd > 5;
-      if (Math.random() < dt * ex * (acc ? 4 : mv ? 1.4 : 0.35) && (e.owner === P || canSee(P, e))) {
-        const C = CHASSIS[e.d.c], c = Math.cos(e.ang), sn = Math.sin(e.ang), sd = Math.random() < 0.5 ? -1 : 1, L = C.size[0], W = C.size[1];
-        addP('exh', (v ? v.x : e.x) - c * L * 0.5 - sn * sd * W * 0.25, (v ? v.y : e.y) - sn * L * 0.5 + c * sd * W * 0.25, -c * 14 + (Math.random() - 0.5) * 6, -sn * 14 + (Math.random() - 0.5) * 6, 0.8 + Math.random() * 0.5, acc ? 2.4 : 1.6);
+      // lo scarico grosso del veterano sbuffa di più, il doppio scarico dell'asso ancora di più e da tutti e due i tubi
+      const rk = e.rank || 0, rx = rk >= 3 ? 2.6 : rk >= 2 ? 1.5 : 1;
+      if (Math.random() < dt * ex * rx * (acc ? 4 : mv ? 1.4 : 0.35) && (e.owner === P || canSee(P, e))) {
+        const { L, W } = unitDims(e), c = Math.cos(e.ang), sn = Math.sin(e.ang), sd = rk === 2 ? 1 : Math.random() < 0.5 ? -1 : 1, off = rk >= 2 ? W * 0.5 - 3 : W * 0.25, back = L * 0.5 + (rk >= 2 ? 2 : 0);
+        addP('exh', (v ? v.x : e.x) - c * back - sn * sd * off, (v ? v.y : e.y) - sn * back + c * sd * off, -c * 14 + (Math.random() - 0.5) * 6, -sn * 14 + (Math.random() - 0.5) * 6, 0.8 + Math.random() * 0.5, (acc ? 2.4 : 1.6) * (rk >= 3 ? 1.35 : rk >= 2 ? 1.2 : 1));
       }
     }
     if (e.hp >= e.max * 0.5 || (e.kind === 'struct' && e.built < 1)) continue;
@@ -464,7 +471,7 @@ export function drawHot(g, inView, t, burning, full, at, home) {
     else if (f.k === 'repair') { if (inView(f.x2, f.y2, 40)) drawRepair(g, f); }
     else if (f.k === 'mush' && k > 0.75 && inView(f.x, f.y, 120)) { const q = 1 - k, H = (20 + 70 * Math.sqrt(q)) * f.s; glow(g, f.x + WIND.x * q * 1.6, f.y - H, 12 * f.s, (0.25 - q) * 3, FB); }
   }
-  for (const w of fxs.wrecks) if (w.t < w.life * 0.3 && inView(w.x, w.y, 30)) glow(g, w.x, w.y, 18, 0.4 + 0.15 * Math.sin(t * 13 + w.ph));
+  for (const w of fxs.wrecks) if (w.t < w.life * (w.burn || 0.3) && inView(w.x, w.y, 30)) glow(g, w.x, w.y, 18, 0.4 + 0.15 * Math.sin(t * 13 + w.ph));
   for (const r of ruins) if (r.t < 6 && inView(r.x, r.y, 60)) glow(g, r.x, r.y, 40, 0.5 * (1 - r.t / 6) + 0.1 * Math.sin(t * 11 + r.id));
   for (const b of burning) if (full || b.kind === 'struct') glow(g, b.x, b.y, b.kind === 'struct' ? b.w * TILE * 0.7 : 14, 0.32 + 0.12 * Math.sin(t * 13 + b.id));
   g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;

@@ -4,6 +4,7 @@
 // piano (minuti) e si disegna con un solo drawImage, solo nei livelli che hanno le impronte. Solo disegno.
 import { TILE, MW, MH, WATER, ROAD, CITY, CHASSIS, P, S, terr, ent, canSee, ftile, mulberry32 } from '../engine/index.js';
 import { SUN } from './look.js';
+import { unitDims } from './dims.js';
 import { paintChunks, setChunkPainter } from './terrain.js';
 
 const DK = 0.5, FADE_S = 2, FADE_A = 0.03, MAX_MARKS = 220;
@@ -67,7 +68,7 @@ export function stampTracks(dt, step, wake) {
     const p = u.builder ? 'W' : u.d.p, t = terrAt(u.x, u.y);
     if (p === 'V') { if (t === WATER && wake) wake(u); continue; }
     if (!soft(t)) continue;
-    const c = Math.cos(u.ang), s = Math.sin(u.ang), W = u.builder ? 12 : CHASSIS[u.d.c].size[1], len = Math.min(Math.sqrt(d2), 2 * step) + 1;
+    const c = Math.cos(u.ang), s = Math.sin(u.ang), W = u.builder ? 12 : unitDims(u).W, len = Math.min(Math.sqrt(d2), 2 * step) + 1;
     const off = W / 2 + (p === 'TR' ? 1.5 : 0.5), w = p === 'W' ? 2.2 : p === 'TR' ? 5.5 : p === 'T' ? 4 : 3.4;
     dg.setTransform(c * DK, s * DK, -s * DK, c * DK, u.x * DK, u.y * DK);
     dg.fillStyle = p === 'W' ? 'rgba(30,24,14,0.16)' : 'rgba(30,24,14,0.2)';
@@ -75,6 +76,16 @@ export function stampTracks(dt, step, wake) {
     if (p !== 'W') { dg.fillStyle = 'rgba(20,16,10,0.18)'; for (let x = -len + 3; x < 3; x += 2.4) { dg.fillRect(x, -off - w / 2, 0.8, w); dg.fillRect(x, off - w / 2, 0.8, w); } }
     used = true;
   }
+}
+// Segni di gomma di una sgommata (Macchina di Villo): due strisce scure dietro le ruote motrici, dal punto di prima
+// (x0, y0) a quello di adesso; restano anche sull'asfalto. a: direzione della macchina; wx, wy: posizione delle ruote
+// dietro nel suo riferimento. Solo nei livelli che hanno le impronte (la tela si svuota negli altri).
+export function skidMark(x0, y0, x1, y1, a, wx, wy) {
+  if (!dg || terrAt(x1, y1) === WATER) return;
+  const c = Math.cos(a), s = Math.sin(a);
+  dg.setTransform(DK, 0, 0, DK, 0, 0); dg.strokeStyle = 'rgba(12,11,10,0.5)'; dg.lineWidth = 2.1; dg.lineCap = 'round'; dg.beginPath();
+  for (const sd of [-1, 1]) { const ox = c * wx - s * sd * wy, oy = s * wx + c * sd * wy; dg.moveTo(x0 + ox, y0 + oy); dg.lineTo(x1 + ox, y1 + oy); }
+  dg.stroke(); dg.lineCap = 'butt'; used = true;
 }
 // Disegna la parte della tela delle impronte nel rettangolo del mondo x0..x1, y0..y1 (niente se è vuota).
 export function drawDecals(g, x0, y0, x1, y1) {

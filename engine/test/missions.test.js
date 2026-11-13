@@ -42,7 +42,10 @@ MISSIONS.forEach((M, i) => {
     assert.ok(ps.every(s => s.built >= 1), 'edifici del giocatore già pronti');
     assert.deepEqual(tally(ps.map(s => s.type)), tally(['hq', ...(pl.structs || [])]));
     assert.equal(units(P, u => u.builder).length, pl.builders ?? 2);
-    assert.deepEqual(tally(units(P, u => !u.builder).map(u => key(u.d))), tally((pl.units || []).map(key)));
+    // Piano 10: oltre ai mezzi dei dati c'è sempre, una sola volta, la Macchina di Villo (contata a parte).
+    assert.deepEqual(tally(units(P, u => !u.builder && !u.hero).map(u => key(u.d))), tally((pl.units || []).map(key)));
+    assert.deepEqual(units(P, u => u.hero).map(u => [u.hero, key(u.d)]), [['villo', 'VILLO/W/VILLO']], 'una Macchina di Villo');
+    assert.equal(units(E, u => u.hero).length, 0, 'il nemico non ha la Macchina di Villo');
     // nemico: tutte le basi
     const want = { hq: 0, factory: 0, lab: 0, depot: 0, tower: 0, bunker: 0, pump: 0 };
     let builders = 0; const army = [];

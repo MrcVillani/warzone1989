@@ -1,11 +1,11 @@
 // Aggiornamento di mezzi ed edifici e passo di simulazione.
-import { TILE, MW, P, E, DIRT, WATER, ROAD, STRUCTS, CHASSIS, WEAPONS, TECH_BY, BUNKER_W, PUMP_RATE } from './data.js';
-import { S, terr, emit, ent, makeUnit, canSee, updateFog, speedMul, roadMul, towerWeapon, techSum, enemyCfg } from './world.js';
+import { TILE, MW, P, E, DIRT, WATER, ROAD, STRUCTS, CHASSIS, WEAPONS, TECH_BY, BUNKER_W, PUMP_RATE, RANKS, RANK_XP, RANK_CALM } from './data.js';
+import { S, terr, emit, ent, makeUnit, canSee, updateFog, speedMul, roadMul, offroadMul, towerWeapon, techSum, enemyCfg, gainXp, weatherTick } from './world.js';
 import { passable, nearestFree, pathTo, reachMap, reachableAdj } from './path.js';
 import { setIdle, cmdMove } from './orders.js';
 import { edist, nearestEnemy, aimFire, updProj } from './combat.js';
 import { aiTick } from './ai.js';
-import { missionTick } from './mission.js';
+import { missionTick, heroTick } from './mission.js';
 import { turnToward, angDiff, ftile, gridRef } from './util.js';
 
 export function followPath(u, dt, sm = speedMul(u.owner)) {
@@ -21,9 +21,10 @@ export function followPath(u, dt, sm = speedMul(u.owner)) {
   const a = Math.atan2(dy, dx);
   u.ang = turnToward(u.ang, a, 4.5 * dt);
   const al = Math.cos(angDiff(u.ang, a));
-  // Terra battuta un po' più lenta, strada più veloce secondo la propulsione (roadMul).
+  // Terra battuta un po' più lenta, strada più veloce secondo la propulsione (roadMul); fuori strada il meteo può
+  // rallentare (offroadMul: il fango della pioggia per ruote e semicingoli).
   const here = terr[ftile(u.x) + ftile(u.y) * MW];
-  const sp = u.speed * sm * Math.max(0.25, al) * (here === DIRT ? 0.92 : here === ROAD ? roadMul(u) : 1);
+  const sp = u.speed * sm * Math.max(0.25, al) * (here === ROAD ? roadMul(u) : (here === DIRT ? 0.92 : 1) * offroadMul(u));
   const st = Math.min(d, sp * dt);
   u.x += dx / d * st; u.y += dy / d * st; u.moving = true;
   if (u.water && terr[ftile(u.x) + ftile(u.y) * MW] === WATER && Math.random() < dt * 14) emit('fx', { k: 'spray', x: u.x - Math.cos(u.ang) * 10, y: u.y - Math.sin(u.ang) * 10 });
@@ -86,6 +87,9 @@ function buildTick(u, dt) {
 export function updUnit(u, dt) {
   u.moving = false; u.working = false;
   if (u.cd > 0) u.cd -= dt;
+  // Gli assi si riparano piano da soli quando da RANK_CALM secondi non sparano e non subiscono danni.
+  const rg = u.rank ? (RANKS[u.rank] || RANKS[0]).regen : 0;
+  if (rg && u.hp < u.max && S.time - (u.fought ?? -1e9) >= RANK_CALM) u.hp = Math.min(u.max, u.hp + u.max * rg * dt);
   const w = u.d ? WEAPONS[u.d.w] : null;
   const tx = ftile(u.x), ty = ftile(u.y);
   if (!passable(tx, ty, u.water)) {
@@ -170,6 +174,10 @@ function repairTick(u, w, dt) {
   else if (o.t === 'idle' && Math.hypot(u.x - u.gx, u.y - u.gy) > TILE * 1.2) { if (!u.path) pathTo(u, u.gx, u.gy); if (followPath(u, dt)) { u.gx = u.x; u.gy = u.y; } }
   else if (o.t === 'idle') u.path = null;
   if (t) {
+    // I punti riparati davvero fanno esperienza: RANK_XP.repair ogni RANK_XP.repairPts.
+    const fix = Math.min(t.max - t.hp, w.heal * dt);
+    u.rep = (u.rep || 0) + fix;
+    if (u.rep >= RANK_XP.repairPts) { u.rep -= RANK_XP.repairPts; gainXp(u, RANK_XP.repair); }
     t.hp = Math.min(t.max, t.hp + w.heal * dt);
     u.tang = turnToward(u.tang, Math.atan2(t.y - u.y, t.x - u.x), 5 * dt);
     if (u.cd <= 0) { u.cd = w.rof; emit('fx', { k: 'repair', x1: u.x, y1: u.y, x2: t.x, y2: t.y, owner: u.owner }); }
@@ -254,6 +262,8 @@ function checkEnd() {
 export function step(dt) {
   if (!S || S.phase !== 'play') return;
   S.time += dt;
+  if (S.weatherMode === 'variable') weatherTick();
+  if (S.hero && S.hero.down) heroTick();
   for (const e of S.ents) { if (e.dead) continue; if (e.kind === 'struct') updStruct(e, dt); else updUnit(e, dt); }
   separate();
   updProj(dt);

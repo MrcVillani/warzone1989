@@ -6,7 +6,7 @@ import {
 import { ui, cam, view, hover, fxs } from './state.js';
 import { selUnits, selStructs, setSel } from './selection.js';
 import { screenToWorld, clampCam, centerOn, mark } from './render.js';
-import { toast, togglePause } from './ui.js';
+import { toast, togglePause, selectHero } from './ui.js';
 import { overlayEscape } from './screens.js';
 import { uiSfx } from './audio.js';
 import { layout } from './layout.js';
@@ -397,6 +397,7 @@ export function initInput(cv, mini) {
     if (lk === 's' && !e.ctrlKey && !e.metaKey) { cmdStop(selUnits()); return; }
     if (lk === 'h') { const hq = S.ents.find(x => x.owner === P && x.type === 'hq' && !x.dead); if (hq) centerOn(hq.x, hq.y); return; }
     if (lk === 'p') { togglePause(); return; }
+    if (lk === 'v' && !e.ctrlKey && !e.metaKey) { selectHero(); return; }
     if (/^[1-9]$/.test(k)) {
       if (e.ctrlKey || e.metaKey) { saveSquad(k); e.preventDefault(); }
       else if (squadIds(k).length) {

@@ -1,5 +1,5 @@
-// Scelte del giocatore ricordate sul dispositivo (localStorage): mappa della schermaglia, nomi dei luoghi sulla mappa e
-// scossa dello schermo (`wz.scossa`). Suono, musica ed effetti hanno le loro chiavi nei rispettivi moduli.
+// Scelte del giocatore ricordate sul dispositivo (localStorage): mappa e meteo della schermaglia (`wz.mappa`,
+// `wz.meteo`), nomi dei luoghi sulla mappa e scossa dello schermo (`wz.scossa`). Suono, musica ed effetti hanno le loro chiavi nei rispettivi moduli.
 import { MAPS, mapDef } from '../engine/index.js';
 
 const load = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } };
@@ -15,8 +15,21 @@ let places = load(PLACES_KEY, '1') !== '0';
 // Mappa della schermaglia: id da MAPS ('casuale' = generata dal seme).
 export const mapPref = () => map;
 export function setMapPref(id) { if (!okMap(id)) return; map = id; save(MAP_KEY, id); }
-// Opzioni di newGame per la mappa scelta (niente per la mappa casuale).
-export const mapOpts = () => (map !== 'casuale' ? { map } : undefined);
+// Meteo della schermaglia: 'clear' (sereno, di base), 'rain', 'fog' o 'variable', come li vuole newGame.
+const WX_KEY = 'wz.meteo';
+export const WEATHER_PREFS = ['clear', 'rain', 'fog', 'variable'];
+let weather = load(WX_KEY, 'clear');
+if (!WEATHER_PREFS.includes(weather)) weather = 'clear';
+export const weatherPref = () => weather;
+export function setWeatherPref(id) { if (!WEATHER_PREFS.includes(id)) return; weather = id; save(WX_KEY, id); }
+// Opzioni di newGame per la schermaglia: mappa disegnata e meteo scelti nel menu (niente con mappa casuale e sereno,
+// cioè la partita di sempre).
+export function mapOpts() {
+  const o = {};
+  if (map !== 'casuale') o.map = map;
+  if (weather !== 'clear') o.weather = weather;
+  return o.map || o.weather ? o : undefined;
+}
 // Voce di MAPS per un id; nome e luoghi della mappa disegnata in corso (S.map), se c'è.
 export const mapInfo = id => MAPS.find(m => m.id === id) || MAPS[0];
 export const placesOf = id => (id && mapDef(id) && mapDef(id).places) || null;

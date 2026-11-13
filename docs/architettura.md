@@ -103,6 +103,11 @@ proiettili in volo, che `loadState` rimette nell'array `proj`.
 | `audio.js` | suoni sintetizzati con Web Audio, posizionati rispetto alla visuale, con limite di voci; volume e acceso/spento salvati sul dispositivo |
 | `music.js` | colonna sonora originale generata in tempo reale: strati calma, tensione e battaglia sullo stesso orologio e sulla stessa armonia, con dissolvenze guidate dall'intensità dei combattimenti; temi del menu, vittoria, sconfitta e cambio di fase; un profilo per ogni missione della campagna (`musicMission(id, fase)`: tonalità, tempo, variante del tema, strumenti), frase «Valle liberata» alla fine della campagna; scala di epicità 1–8 per missione (`epic`, strati che si sommano gradino per gradino), motivo della Brigata (`BRIGATA`) che si completa lungo la campagna e culmine a orchestra piena dal gradino 6 negli scontri più intensi, entro un limite di voci (`MUSIC_LIMITS`); volume e acceso/spento salvati sul dispositivo |
 | `urban.js` | disegno di città (isolati a corte, tetti, poderi), strade con raccordi e mezzeria, ponti, nomi dei luoghi delle mappe disegnate |
+| `weather.js` | meteo, solo aspetto: pioggia (terreno lucido, pozzanghere, gocce, schizzi, lampo e tuono) e nebbia (velo e banchi), con passaggio graduale al cambio; segue i livelli di qualità e «riduci movimento» |
+| `livery.js` | livree dei veterani sempre più vistose per grado (Esperto, Veterano, Asso), dipinte sopra la sagoma di serie per ogni progetto, nello stile di ciascun lato |
+| `veterans.js` | nomi dei gradi, soprannomi degli assi del giocatore (solo client), lampo e suono della promozione (evento `rank`), pulsante e conto alla rovescia della Macchina di Villo (evento `hero`) |
+| `hero.js` | la Macchina di Villo (solo campagna): berlina grigia disegnata da zero, livree per grado, bagagliaio con l'impianto stereo e colpi «Bassi a palla» (onde sonore ed esplosione speciale, colpo grosso con lampo) |
+| `dims.js` | ingombro disegnato dei mezzi (genieri, Macchina di Villo, telai) per scarichi, fari, relitti, impronte e neon |
 | `latina.js` | testi con un sorriso nella sola schermaglia su Latina: rapporto finale (uno di tre a caso per partita), battute brevi in partita nate da eventi esistenti (strade, ponti, mezzi distrutti in città, prima pompa, prima fabbrica nemica), al massimo una ogni 90 s e una volta ciascuna; nota sulle buche nel menu |
 | `prefs.js` | scelte ricordate sul dispositivo: mappa della schermaglia (`wz.mappa`), nomi dei luoghi (`wz.luoghi`) e scossa dello schermo (`wz.scossa`) |
 | `anim.js` | animazioni del client: assetto e rinculo dei mezzi, porte delle fabbriche, cantiere con gru, palla di fuoco, macerie degli edifici; rispetta qualità adattiva e «riduci movimento» |
@@ -119,6 +124,23 @@ e `S.map` la ricorda nel salvataggio. Due terreni valgono solo qui: `CITY` (isol
 costruisce) e `ROAD` (strada: si costruisce e i mezzi vanno più veloci secondo `PROPS[p].road`; A* preferisce le
 strade). `homeOf(o)` dà il centro della base di partenza di un lato. `S.night` è vero nelle missioni notturne
 (campo `night` di `MISSIONS`, oggi solo la 1) e serve solo alla grafica.
+
+## Meteo, gradi e Macchina di Villo
+
+- **Meteo** (`WEATHER` in `engine/data.js`): `clear`, `rain`, `fog`. Pioggia: fuori strada ruote ×0,8 e semicingoli
+  ×0,9, lanciafiamme ×0,75. Nebbia: vista ×0,7 (minimo `SIGHT.min`), si spara solo a ciò che il proprio lato vede.
+  `S.weather` è il tempo attuale, `S.weatherMode` la scelta della schermaglia (`newGame(diff, seed, { weather })`,
+  anche `variable`: cambia ogni `WEATHER_VAR` secondi, deterministico dal seme). Le missioni hanno il campo `weather`;
+  in «Contrattacco» la pioggia smette alla fase 2. Evento `weather` `{ from, to }` con avviso.
+- **Gradi** (`RANKS`, `RANK_XP`, `RANK_CALM`): ogni mezzo ha `xp` e `rank` (0–3). Esperienza al colpo di grazia
+  (anche per il nemico) e alle riparazioni; ogni grado moltiplica danno e punti struttura, l'asso si ripara da solo
+  dopo `RANK_CALM` secondi senza combattere. Genieri ed edifici esclusi. Evento `rank`.
+- **Veterani in campagna** (`VETERANS_MAX`, `VETERANS_RANK`): alla vittoria fino a 3 mezzi dal grado Veterano in su
+  passano alla missione dopo (campo `veterans` dello stato della campagna).
+- **Macchina di Villo** (`HERO`, `HERO_W`): mezzo speciale in tutte le missioni della campagna, mai in schermaglia né
+  producibile; livello di forza per missione (`HERO.levels`); arma «Bassi a palla» con un colpo grosso ogni terzo
+  (`fx` con `hero` e `big`). Distrutta, non fa perdere: torna dopo `HERO.respawn` secondi accanto al comando con grado
+  ed esperienza (`S.hero`, evento `hero`; grado ed esperienza passano da una missione all'altra nel campo `hero`).
 
 ## Campagna
 

@@ -1,6 +1,6 @@
 // Passabilità e percorsi (A* su griglia a 8 direzioni, senza tagliare gli angoli).
 import { MW, MH, N, WATER, ROAD, WALKABLE } from './data.js';
-import { terr, occ, hasRoad, roadMul } from './world.js';
+import { terr, occ, hasRoad, roadMul, offroadMul } from './world.js';
 import { ftile } from './util.js';
 
 export function passable(x, y, water) {
@@ -107,8 +107,10 @@ export function reachableAdj(tx, ty, w, h, R) {
   }
   return out;
 }
+// Il vantaggio della strada per il percorso è quello della propulsione diviso il rallentamento fuori strada del meteo
+// (con la pioggia le strade convengono di più a ruote e semicingoli).
 export function pathTo(u, wx, wy) {
-  const p = findPath(ftile(u.x), ftile(u.y), ftile(wx), ftile(wy), u.water, roadMul(u));
+  const p = findPath(ftile(u.x), ftile(u.y), ftile(wx), ftile(wy), u.water, roadMul(u) / offroadMul(u));
   u.path = p && p.length ? p : null; u.pi = 0; u.stk = 0; u.sx0 = u.x; u.sy0 = u.y;
 }
 // Caselle libere vicine a un punto, per disporre un gruppo senza ammassarlo.

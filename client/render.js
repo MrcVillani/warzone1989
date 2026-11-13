@@ -13,14 +13,19 @@ import { layout } from './layout.js';
 import { unitPose, poseOf, recoil, resetAnim } from './anim.js';
 import { resetTerrain, drawTerrain, pumpTerrain, terrainStats, terrainReady } from './terrain.js';
 import { resetDecals, drawDecals } from './decals.js';
-import { hullSprite, turretSprite, truckSprite, truckArm, drawWreck, spriteFrame } from './vehicles.js';
+import { hullSprite, turretSprite, truckSprite, truckArm, drawWreck, spriteFrame, antennaTip, liveryCount } from './vehicles.js';
+import { drawNeon, drawTail, drawSparkle, chevronImg, CHEV_H } from './livery.js';
+import { unitDims } from './dims.js';
+import { drawHero, drawHeroWreck, drawHeroFx, drawHeroFlash, heroFlash, heroLights, resetHero } from './hero.js';
 import { structShadow, drawStruct, drawRuin, beacons, WINDOWS } from './structs.js';
 import { drawWater, drawClouds, drawTrees, grade } from './atmos.js';
 import { nightLight, glow, LAMP, RED, GLOW_W } from './light.js';
 import { ruins, drawSmoke, drawHot, resetEffects, dust, vdust, clock, shakeAllowed } from './effects.js';
 import { NIGHT, CHUNK } from './look.js';
+import { wx, weatherTick, weatherReset, drawWetGround, drawWeatherAir, drawRain, overcast, weatherState } from './weather.js';
 
 export { spawnFx, updParts, unitSpawned, structPlaced, structBuilt, mark } from './effects.js';
+export { updHero } from './hero.js';
 export { drawVehicle, vehicleExtent, WEAPON_REACH } from './vehicles.js';
 
 let cv, ctx, mini, mctx, mmBase = null, vig = null;
@@ -78,13 +83,13 @@ export function updateFogImage() {
 // Nuova mappa o partita caricata (evento «world» del motore): via tutto lo stato visivo della partita precedente.
 // I tempi di S ripartono da capo, quindi un segnale o un'animazione rimasti avrebbero un'età senza senso.
 export function resetFx() {
-  resetEffects(); resetAnim();
+  resetEffects(); resetAnim(); weatherReset(); resetHero();
   barBg.length = 0; barCol.clear(); burnList.length = 0;
 }
 // Stato del disegno per i test: modo di cottura del terreno, pezzi pronti, visuale pronta.
 export function renderState() {
   const vr = { x0: cam.x, y0: cam.y, x1: cam.x + view.cw / cam.z, y1: cam.y + view.ch / cam.z };
-  return { ...terrainStats, ready: terrainReady(vr, variant()), night: !!(S && S.night), level: fxq.q.name };
+  return { ...terrainStats, ready: terrainReady(vr, variant()), night: !!(S && S.night), level: fxq.q.name, weather: weatherState(), liveries: liveryCount() };
 }
 // Variante dei pezzi di terreno per il livello in uso: chiome cotte se gli alberi non sono vivi, tinta della notte
 // cotta se la tela della luce è spenta.
@@ -105,11 +110,11 @@ function drawUnit(g, u, t, ct, k, dt, Q, rm, run, night) {
     const f = Math.max(0, a / 0.6), back = rm ? 0 : 14 * (1 - f) * (1 - f);
     g.globalAlpha = 0.15 + 0.85 * f; x -= Math.cos(v.a) * back; y -= Math.sin(v.a) * back;
   }
-  if (run && dirt && !lo && v.spd > 8) {
+  if (run && dirt && !lo && v.spd > 8 && wx.wet < 0.5) {
     v.dq += dt * v.spd / 60 * (fxq.level === 3 ? 7 : 4) * Q.dens;
     if (v.dq >= 1) {
       v.dq = Math.min(1, v.dq - 1);
-      const c = Math.cos(v.a), s = Math.sin(v.a), hl = u.builder ? 9 : CHASSIS[u.d.c].size[0] / 2, side = (Math.random() - 0.5) * (u.builder ? 10 : CHASSIS[u.d.c].size[1]);
+      const c = Math.cos(v.a), s = Math.sin(v.a), dm = unitDims(u), hl = u.builder ? 9 : dm.L / 2, side = (Math.random() - 0.5) * dm.W;
       vdust(x - c * hl - s * side, y - s * hl + c * side, -c * 12 + (Math.random() - 0.5) * 10, -s * 12 + (Math.random() - 0.5) * 10 - 3, 0.7 + Math.random() * 0.4, 1.8 + Math.random() * 1.4);
     }
   }
@@ -118,14 +123,31 @@ function drawUnit(g, u, t, ct, k, dt, Q, rm, run, night) {
     const h = truckSprite(u.owner, v.a, k, Q.aq, night);
     g.setTransform(ca * sc, sa * sc, -sa * sc, ca * sc, ex, ey); g.drawImage(h.c, h.x, h.y, h.w, h.h);
     g.translate(-5, 0); truckArm(g, u.owner, u.working && !rm ? Math.sin(t * 4) * 0.7 : 0.25);
+  } else if (u.hero) {
+    // Macchina di Villo: sagoma propria e parti vive (hero.js); x e y con l'arrivo dalla base
+    drawHero(g, u, a < 0.6 ? { ...v, x, y } : v, TF, { k, aq: Q.aq, night, lite: lo, rm, run, dt, ct });
   } else {
     // beccheggio: lo scafo si accorcia o si allunga appena, la torretta scivola avanti o indietro
-    const pz = lo ? 0 : v.pitch, hs = 1 + pz * 0.04;
-    const h = hullSprite(u.d, u.owner, v.a, v.dist, k, Q.aq, night);
-    g.setTransform(ca * sc * hs, sa * sc * hs, -sa * sc, ca * sc, ex, ey); g.drawImage(h.c, h.x, h.y, h.w, h.h);
+    // livrea del grado cotta nella sagoma (in minima solo i bordi dell'asso); neon, coda di volpe e scintillio vivi
+    const pz = lo ? 0 : v.pitch, hs = 1 + pz * 0.04, rank = u.rank || 0, fancy = rank >= 2 && !lo;
+    const h = hullSprite(u.d, u.owner, v.a, v.dist, k, Q.aq, night, rank, lo);
+    g.setTransform(ca * sc * hs, sa * sc * hs, -sa * sc, ca * sc, ex, ey);
+    if (fancy && rank >= 3) { const C = CHASSIS[u.d.c]; drawNeon(g, u.owner, C.size[0], C.size[1], night ? 1 : 0.6); }
+    g.drawImage(h.c, h.x, h.y, h.w, h.h);
     const rec = recoil(u.id, ct), tc = Math.cos(u.tang), ts = Math.sin(u.tang), pd = pz * 1.1;
-    const w = turretSprite(u.d.w, u.d.c, u.owner, u.tang, k, Q.aq, night);
+    const w = turretSprite(u.d.w, u.d.c, u.owner, u.tang, k, Q.aq, night, rank, lo);
     g.setTransform(tc * sc, ts * sc, -ts * sc, tc * sc, ex + sc * (ca * pd - tc * rec), ey + sc * (sa * pd - ts * rec)); g.drawImage(w.c, w.x, w.y, w.w, w.h);
+    if (fancy) {
+      // coda di volpe in cima all'antenna: pende all'indietro rispetto alla marcia e sventola (ferma con «riduci
+      // movimento»)
+      const tip = antennaTip(u.d.w, u.d.c), fast = v.spd > 8;
+      drawTail(g, tip[0], tip[1], (fast ? v.a + Math.PI - u.tang : 2.5) + (rm ? 0 : Math.sin(ct * (fast ? 12 : 3) + u.id) * (fast ? 0.3 : 0.4)));
+      if (rank >= 3 && !rm) {
+        // scintillio: ogni paio di secondi un riflesso a stella in un punto dello scafo
+        const ph = (ct * 0.45 + u.id * 0.37) % 1;
+        if (ph < 0.15) { const C = CHASSIS[u.d.c], i = (Math.floor(ct * 0.45 + u.id * 0.37) * 7 + u.id) % 5; g.setTransform(ca * sc, sa * sc, -sa * sc, ca * sc, ex, ey); drawSparkle(g, [0.38, -0.3, 0.1, -0.42, 0.3][i] * C.size[0], [-0.36, 0.34, -0.4, -0.2, 0.38][i] * C.size[1], 3.6, Math.sin(ph / 0.15 * Math.PI)); }
+      }
+    }
   }
   g.globalAlpha = 1;
 }
@@ -255,6 +277,7 @@ export function render(now) {
   g.fillStyle = '#0c0e0d'; g.fillRect(0, 0, cv.width, cv.height);
   if (!S || !mmBase) return;
   pumpTerrain(); spriteFrame();
+  weatherTick(dt, run && S.phase === 'play', rm);
   const night = !!S.night, lightOn = night && Q.light, tinted = night && !lightOn;
   const sh = shakeAllowed() ? fxs.shake : 0, ox = sh ? (Math.random() - 0.5) * 2 * sh : 0, oy = sh ? (Math.random() - 0.5) * 2 * sh : 0;
   TF[0] = dpr * z; TF[1] = (-cam.x * z + ox) * dpr; TF[2] = (-cam.y * z + oy) * dpr; home(g);
@@ -274,6 +297,7 @@ export function render(now) {
   }
   g.imageSmoothingEnabled = true;
   drawDecals(g, x0, y0, x1, y1);
+  drawWetGround(g, vr, dt, lvl, rm, night);
   if (Q.water) drawWater(g, cv, TF, vr, rm ? 0 : ct, Q.water);
   drawDeposits(g, inView, rm ? 0 : t);
   // 2. edifici (ombre, macerie, relitti, corpi), alberi vivi
@@ -282,7 +306,7 @@ export function render(now) {
   for (const e of seenStructs) structShadow(g, e);
   const so = { t, now: ct, k, aq: Q.aq, night: tinted, tinted, rm };
   for (const r of ruins) if (inView(r.x, r.y, 110)) drawRuin(g, r, so);
-  for (const w of fxs.wrecks) if (inView(w.x, w.y, 40)) drawWreck(g, w, t, TF, lvl === 0);
+  for (const w of fxs.wrecks) if (inView(w.x, w.y, 40)) (w.hero ? drawHeroWreck : drawWreck)(g, w, t, TF, lvl === 0);
   burnList.length = 0;
   for (const e of seenStructs) {
     const st = fxs.settle.get(e.id), a = st ? ct - st.t0 : 9;
@@ -304,7 +328,7 @@ export function render(now) {
   // 3. notte: il mondo fin qui per la tela della luce (fari, lampade, finestre, fuochi)
   if (lightOn) {
     const units = seenUnits.map(u => { const v = poseOf(u.id); return { u, x: v ? v.x : u.x, y: v ? v.y : u.y, a: v ? v.a : u.ang }; });
-    nightLight(g, cv, { units, structs: seenStructs, fx: fxs.fx, wrecks: fxs.wrecks, ruins, parts: fxs.parts, proj, burning: burnList, t, vr, tf: TF });
+    nightLight(g, cv, { units, structs: seenStructs, fx: fxs.fx, wrecks: fxs.wrecks, ruins, parts: fxs.parts, proj, burning: burnList, t, vr, tf: TF, neon: lvl > 0, lights: heroLights(), flash: rm ? 0 : heroFlash() });
     home(g);
   }
   // 4. punti di raduno, anelli di selezione, mezzi, proiettili
@@ -337,6 +361,7 @@ export function render(now) {
   // 5. fumo e polvere, poi fuoco e luci additive
   drawSmoke(g, inView, night);
   drawHot(g, inView, t, burnList, Q.glow, at, home);
+  drawHeroFx(g, inView, t);
   if (night) {
     // finestre accese, luci di segnalazione e fari a piena luce
     g.globalCompositeOperation = 'lighter';
@@ -347,26 +372,40 @@ export function render(now) {
     }
     for (const e of seenUnits) {
       if (e.owner !== P) continue;
-      const v = poseOf(e.id), L = e.builder ? 20 : CHASSIS[e.d.c].size[0], W = e.builder ? 10 : CHASSIS[e.d.c].size[1], c = Math.cos(v ? v.a : e.ang), s = Math.sin(v ? v.a : e.ang), ux = v ? v.x : e.x, uy = v ? v.y : e.y;
+      const v = poseOf(e.id), { L, W } = unitDims(e), c = Math.cos(v ? v.a : e.ang), s = Math.sin(v ? v.a : e.ang), ux = v ? v.x : e.x, uy = v ? v.y : e.y;
       for (const sd of [-1, 1]) glow(g, ux + c * L / 2 - s * sd * W * 0.35, uy + s * L / 2 + c * sd * W * 0.35, 4, 0.8, GLOW_W);
+      // la Macchina di Villo ha anche i fanali rossi dietro
+      if (e.hero) for (const sd of [-1, 1]) glow(g, ux - c * L / 2 - s * sd * W * 0.34, uy - s * L / 2 + c * sd * W * 0.34, 3.2, 0.8, RED);
     }
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
   }
   // 6. nuvole e colore (di giorno), nebbia
-  if (!night && Q.clouds && !rm) drawClouds(g, vr, ct);
-  if (!night && Q.grade) { grade(g, cv); home(g); }
+  // (con pioggia o nebbia il cielo è coperto: ombre delle nuvole e luce calda svaniscono; poi velo e banchi del meteo
+  // sotto la nebbia di guerra, gocce in primo piano sopra)
+  const sky = 1 - overcast();
+  if (!night && Q.clouds && !rm && sky > 0.02) drawClouds(g, vr, ct, sky);
+  if (!night && Q.grade && sky > 0.02) { grade(g, cv, sky); home(g); }
   g.imageSmoothingEnabled = true;
+  drawWeatherAir(g, vr, lvl, rm, night);
   drawFog(g);
+  drawRain(g, cw, ch, dpr, dt, lvl, rm, night);
+  if (!rm) drawHeroFlash(g, cv.width, cv.height);
+  home(g);
   for (const f of fxs.fx) if (f.k === 'mark') drawMark(g, f, rm);
   // nomi dei luoghi delle mappe disegnate: sopra la nebbia, sotto barre e selezioni; solo da vicino
   if (S.map && placesOn()) { const pl = placesOf(S.map); if (pl) { drawPlaces(g, pl, cam, z, dpr, cw, ch, (x, y) => explored[x + y * MW] === 1); home(g); } }
   // 7. barre della salute, angoli di selezione, piazzamento, riquadro
   selSet.clear(); for (const id of ui.sel) selSet.add(id);
-  const batchBars = lvl < 3;
+  const batchBars = lvl < 3, chevK = clamp(1 / z, 1, 1.7);
   for (const e of S.ents) {
     if (e.dead || !inView(e.x, e.y, e.kind === 'unit' ? 30 : 100)) continue;
     const isSel = selSet.has(e.id);
     if (e.owner !== P && !canSee(P, e)) continue;
+    if (e.rank > 0 && e.kind === 'unit') {
+      // gallone del grado: a sinistra della barra della salute, con la base alla sua altezza (non la copre mai)
+      const r = e.rad + 4, v = poseOf(e.id), x = v ? v.x : e.x, y = v ? v.y : e.y, rk = Math.min(3, e.rank), w = 8.4 * chevK, h = CHEV_H[rk] * 0.84 * chevK;
+      g.drawImage(chevronImg(rk, e.owner), x - 12.5 - w, y - r - 2 - h, w, h);
+    }
     if (!isSel && e.hp >= e.max && (e.kind !== 'struct' || e.built >= 1)) continue;
     if (e.kind === 'unit') {
       const r = e.rad + 4, v = poseOf(e.id), x = v ? v.x : e.x, y = v ? v.y : e.y;
@@ -479,6 +518,12 @@ export function renderMini() {
   for (const e of S.ents) {
     if (e.dead) continue;
     if (e.kind === 'struct') { if (e.owner !== P && !e.seen) continue; g.fillStyle = PAL[e.owner].dot; g.fillRect(e.tx * sx, e.ty * sy, Math.max(2, e.w * sx), Math.max(2, e.h * sy)); }
+    else if (e.hero) {
+      // Macchina di Villo: rombo bianco con il bordo ambra, più grande dei punti degli altri mezzi
+      const x = e.x / TILE * sx, y = e.y / TILE * sy, r = Math.max(4, 2.2 * (W / mini.clientWidth || 1));
+      g.beginPath(); g.moveTo(x, y - r); g.lineTo(x + r, y); g.lineTo(x, y + r); g.lineTo(x - r, y); g.closePath();
+      g.fillStyle = '#ffffff'; g.fill(); g.strokeStyle = '#d39233'; g.lineWidth = Math.max(1.2, r * 0.3); g.stroke();
+    }
     else { if (!canSee(P, e)) continue; g.fillStyle = e.owner === P ? '#f6dca8' : '#ff6f5f'; g.fillRect(e.x / TILE * sx - 1.5, e.y / TILE * sy - 1.5, 3, 3); }
   }
   g.strokeStyle = 'rgba(235,228,200,0.18)'; g.lineWidth = 1;

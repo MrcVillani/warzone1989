@@ -2,6 +2,7 @@
 // (posizione ammorbidita, sterzata, beccheggio, cingoli), rinculo delle armi, porte delle fabbriche, cantieri con la
 // gru, sbuffi delle palle di fuoco e macerie degli edifici crollati.
 import { TILE, CHASSIS, angDiff, mulberry32 } from '../engine/index.js';
+import { unitDims } from './dims.js';
 
 /* ---------- assetto dei mezzi ---------- */
 // Il motore muove i mezzi a velocità costante: qui la posizione disegnata segue quella vera con una molla
@@ -193,7 +194,7 @@ export function makeRubble(s, col) {
 // Ingombro del relitto preso dal mezzo distrutto: lunghezza, larghezza e tipo di propulsione.
 export function wreckShape(u) {
   if (!u || u.builder || !u.d) return { L: 20, W: 10, p: 'W' };
-  const C = CHASSIS[u.d.c]; return { L: C.size[0], W: C.size[1], p: u.d.p };
+  const { L, W } = unitDims(u); return { L, W, p: u.d.p };
 }
 
 export function resetAnim() { poses.clear(); kicks.clear(); doors.clear(); cranes.clear(); }

@@ -11,29 +11,29 @@ const TREE_NEW = 12;
 
 const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
 /* ---------- trame ripetibili ---------- */
-// Trame di 256×256 che si ripetono senza cuciture (rumore sfumato tra i quattro angoli). Si calcolano a righe,
+// Trame di 256×256 che si ripetono senza cuciture (rumore sfumato con le sue copie spostate di un periodo). Si calcolano a righe,
 // TEX_ROWS per fotogramma: finché non sono pronte la parte che le usa non si disegna (nessun fotogramma lungo).
 const TEX_ROWS = 16;
 const tex = new Map();
-function tileTex(key, fn, map) {
+export function tileTex(key, fn, map) {
   let t = tex.get(key);
   if (!t) { const c = mk(256, 256), g = c.getContext('2d'); t = { c, g, img: g.createImageData(256, 256), y: 0, done: false }; tex.set(key, t); }
   if (t.done) return t.c;
   for (const y1 = Math.min(256, t.y + TEX_ROWS); t.y < y1; t.y++) for (let x = 0; x < 256; x++) {
     const u = x / 256, v = t.y / 256;
-    const val = fn(u, v) * (1 - u) * (1 - v) + fn(u + 1, v) * u * (1 - v) + fn(u, v + 1) * (1 - u) * v + fn(u + 1, v + 1) * u * v;
+    const val = fn(u, v) * (1 - u) * (1 - v) + fn(u - 1, v) * u * (1 - v) + fn(u, v - 1) * (1 - u) * v + fn(u - 1, v - 1) * u * v;
     const [r, gg, b, a] = map(val), i = (x + t.y * 256) * 4; t.img.data[i] = r; t.img.data[i + 1] = gg; t.img.data[i + 2] = b; t.img.data[i + 3] = a;
   }
   if (t.y < 256) return null;
   t.g.putImageData(t.img, 0, 0); t.done = true; t.img = null;
   return t.c;
 }
-const nC = makeNoise2(4242), nR = makeNoise2(99);
+export const nC = makeNoise2(4242), nR = makeNoise2(99);
 const cloudTex = () => tileTex('cloud', (u, v) => nC.fbm(u * 3, v * 3, 4), n => [0, 0, 0, clamp((n - 0.5) * 3.2, 0, 1) * 255]);
 const skyTex = () => tileTex('sky', (u, v) => nC.fbm(u * 3 + 9, v * 3 + 4, 3), n => [186, 214, 232, clamp((n - 0.42) * 2, 0, 1) * 75]);
 const rippleTex = () => tileTex('ripple', (u, v) => Math.sin((v * 34 + nR.fbm(u * 4, v * 4, 3) * 9) * Math.PI), s => [230, 240, 238, s > 0.86 ? (s - 0.86) / 0.14 * 150 : 0]);
 // Ripete la trama img (lato S nel mondo, spostata di ox, oy) sul rettangolo del mondo vr.
-function tile(g, img, S, ox, oy, vr) {
+export function tile(g, img, S, ox, oy, vr) {
   const x0 = Math.floor((vr.x0 - ox) / S) * S + ox, y0 = Math.floor((vr.y0 - oy) / S) * S + oy;
   for (let y = y0; y < vr.y1; y += S) for (let x = x0; x < vr.x1; x += S) g.drawImage(img, x, y, S, S);
 }
@@ -78,16 +78,18 @@ export function drawWater(g, cv, tf, vr, t, level) {
 }
 
 /* ---------- nuvole e colore ---------- */
-export function drawClouds(g, vr, t) {
+// k: quanto si vedono (1 = cielo sereno; con pioggia e nebbia il cielo è coperto e le ombre delle nuvole svaniscono).
+export function drawClouds(g, vr, t, k = 1) {
   const C = cloudTex(); if (!C) return;
   const S = 1500, ox = (t * WIND.x * 0.8) % S, oy = (t * WIND.y * 0.8) % S;
-  g.globalAlpha = 0.2; tile(g, C, S, ox, oy, vr); g.globalAlpha = 1;
+  g.globalAlpha = 0.2 * k; tile(g, C, S, ox, oy, vr); g.globalAlpha = 1;
 }
-// Correzione colore: luce calda dall'angolo del sole, ombre un po' più fredde (fusione «soft-light»).
-export function grade(g, cv) {
-  g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'soft-light';
+// Correzione colore: luce calda dall'angolo del sole, ombre un po' più fredde (fusione «soft-light»). k: intensità
+// (cala con il cielo coperto).
+export function grade(g, cv, k = 1) {
+  g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'soft-light'; g.globalAlpha = k;
   const gr = g.createLinearGradient(0, 0, cv.width, cv.height); gr.addColorStop(0, 'rgba(255,214,150,0.32)'); gr.addColorStop(1, 'rgba(70,90,120,0.28)');
-  g.fillStyle = gr; g.fillRect(0, 0, cv.width, cv.height); g.globalCompositeOperation = 'source-over';
+  g.fillStyle = gr; g.fillRect(0, 0, cv.width, cv.height); g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
 }
 
 /* ---------- alberi vivi ---------- */

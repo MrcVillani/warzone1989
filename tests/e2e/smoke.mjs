@@ -14,6 +14,7 @@ import { runOstChecks } from './ost.mjs';
 import { runEpicChecks } from './epica.mjs';
 import { runLayoutBChecks, lbLayout } from './layoutb.mjs';
 import { runGraphicsChecks } from './grafica.mjs';
+import { runWeatherChecks } from './meteo.mjs';
 
 // Playwright si carica con require: così vale anche l'installazione globale del sistema.
 const { chromium, devices } = createRequire(import.meta.url)('playwright');
@@ -125,6 +126,9 @@ await runLayoutBChecks({ browser, url, check, todo, only });
 // «minima» con 200 mezzi su telefono lento, scossa spenta (Comandi, grafica minima, «riduci movimento»), notte solo in
 // missione 1, terreno cotto anche senza Worker, elenco «N selezionati» sopra le schede (tests/e2e/grafica.mjs).
 await runGraphicsChecks({ browser, url, check, todo, profiles: profiles.filter(([n]) => !only || n === only) });
+// Meteo e veterani (piano 10): pioggia, nebbia e variabile senza errori, riga «Meteo» ricordata, gallone e grado nel
+// pannello, Macchina di Villo in missione con pulsante «Villo», colpo normale e grosso, carrozziere e ritorno (tests/e2e/meteo.mjs).
+await runWeatherChecks({ browser, url, check, todo, profiles: profiles.filter(([n]) => !only || n === only) });
 await browser.close();
 if (known.length) console.log(`\n${known.length} problemi noti (TODO), non bloccanti:\n- ${known.join('\n- ')}`);
 if (failures.length) { console.error(`\n${failures.length} controlli falliti.`); process.exit(1); }

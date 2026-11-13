@@ -16,6 +16,9 @@ import { layout } from './layout.js';
 import { paneTab, toggleDrawer, openDrawer, syncDrawer, startPlacing, updatePlacebar } from './drawer.js';
 import { tilesFor, paintTiles, freeBuilders } from './tiles.js';
 import { mapOpts, placesOf, placesOn, setPlaces, shakeOn, setShake } from './prefs.js';
+import { rankSvg } from './livery.js';
+import { rankName, nickOf } from './veterans.js';
+import { heroUnit } from './hero.js';
 
 const $ = id => document.getElementById(id);
 export const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -84,7 +87,7 @@ export function partReady(kind, key) { const r = (kind === 'c' ? CHASSIS : kind 
 // Il pannello si ricostruisce solo quando cambia questa chiave; le barre di avanzamento si aggiornano a parte.
 function panelKey() {
   const r = Math.floor(S.res[P]), tab = paneTab();
-  const k = [tab, layout.b ? `B${layout.v ? 'v' : ''}:${ui.drawer}` : '', ui.placing, ui.sel.join(','), selEnts().map(e => `${e.id}:${e.built}:${e.kind === 'unit' ? e.order.t + (e.d && WEAPONS[e.d.w].heal && e.tgt ? 1 : 0) : ''}`).join(','), Object.keys(S.tech[P]).length];
+  const k = [tab, layout.b ? `B${layout.v ? 'v' : ''}:${ui.drawer}` : '', ui.placing, ui.sel.join(','), selEnts().map(e => `${e.id}:${e.built}:${e.kind === 'unit' ? e.order.t + (e.d && WEAPONS[e.d.w].heal && e.tgt ? 1 : 0) + ':' + (e.rank || 0) + ':' + Math.floor(e.xp || 0) : ''}`).join(','), Object.keys(S.tech[P]).length];
   if (tab === 'build') k.push(selUnits().some(u => u.builder), layout.b ? freeBuilders().length : '', Object.keys(S.tech[P]).join(','), BUILD_ORDER.map(t => r >= STRUCTS[t].cost).join(''));
   if (tab === 'prod') { const ps = producers(); k.push(ui.producer, ps.map(p => `${p.id}:${p.built >= 1}:${p.queue.length}`).join(','), JSON.stringify(S.designs), S.designs.map(d => r >= dStats(d, P).cost).join(''), r >= BUILDER.cost); }
   if (tab === 'res') k.push(JSON.stringify(ui.resFold), Object.keys(S.tech[P]).join(','), S.ents.filter(e => e.owner === P && e.type === 'lab' && !e.dead).map(l => `${l.id}:${l.built >= 1}:${l.rs ? l.rs.id : ''}`).join(','), TECH.map(t => r >= t.cost).join(''));
@@ -106,7 +109,11 @@ function htmlSel() {
       if (e.builder) kv += `<div><span>Compito</span><span>${e.order.t === 'build' ? 'cantiere' : e.order.t === 'move' ? 'in marcia' : 'fermo'}</span></div>`;
       else if (st.hps) kv += `<div><span>Ripara</span><span>${dec(st.hps)}/s</span></div><div><span>Compito</span><span>${e.tgt ? 'ripara' : 'in attesa'}</span></div>`;
       else { const W = WEAPONS[e.d.w]; kv += `<div><span>Arma</span><span>${W.short}</span></div><div><span>Gittata</span><span>${rangeTxt(W)}</span></div><div><span>Danno/s</span><span>${st.dps.toFixed(0)}</span></div>`; }
-      return `<div class="selhead"><span class="nm">${esc(nm)}</span>${tag}</div><div class="hpbar"><i data-hp="${e.id}"></i></div><div class="kv">${kv}${sector}</div>`;
+      // grado e distruzioni (i genieri non fanno carriera); per gli assi del giocatore il soprannome
+      const rk = e.rank || 0, nick = nickOf(e);
+      const vet = e.builder ? '' : `<div class="rkrow"><span>Grado</span><span>${rankSvg(rk, e.owner)}${esc(rankName(rk))}</span></div><div><span>Distruzioni</span><span>${Math.floor(e.xp || 0)}</span></div>`;
+      const nk = nick ? `<p class="nick">«${esc(nick)}»</p>` : '';
+      return `<div class="selhead"><span class="nm">${esc(nm)}</span>${tag}</div>${nk}<div class="hpbar"><i data-hp="${e.id}"></i></div><div class="kv">${vet}${kv}${sector}</div>`;
     }
     const D = STRUCTS[e.type];
     let extra = '';
@@ -119,9 +126,13 @@ function htmlSel() {
     return `<div class="selhead"><span class="nm">${D.name}</span>${tag}</div><div class="hpbar"><i data-hp="${e.id}"></i></div><div class="kv"><div><span>Corazza</span><span>${D.armor}</span></div>${sector}${extra}</div>${hint}`;
   }
   const groups = new Map();
-  for (const e of es) { const k = e.kind === 'struct' ? STRUCTS[e.type].name : e.builder ? 'Geniere' : designName(e.d); groups.set(k, (groups.get(k) || 0) + 1); }
+  // i mezzi con un grado fanno riga a sé, con il loro gallone accanto al nome
+  for (const e of es) {
+    const nm = e.kind === 'struct' ? STRUCTS[e.type].name : e.builder ? 'Geniere' : designName(e.d), rk = e.kind === 'unit' ? e.rank || 0 : 0, k = `${rk}|${nm}`;
+    const gr = groups.get(k) || { nm, rk, o: e.owner, n: 0 }; gr.n++; groups.set(k, gr);
+  }
   const tip = coarse() && es.some(e => e.kind === 'unit') ? '<p class="hint small" style="margin-top:6px">Tieni premuto 1–4 sulla mappa per salvarli in una squadra.</p>' : '';
-  return `<div class="selhead"><span class="nm">${es.length} selezionati</span><span class="tag p">${FACTION[P]}</span></div><div class="hpbar"><i data-hp="all"></i></div><ul class="comp">${[...groups].map(([k, n]) => `<li><span>${esc(k)}</span><b>× ${n}</b></li>`).join('')}</ul>${tip}`;
+  return `<div class="selhead"><span class="nm">${es.length} selezionati</span><span class="tag p">${FACTION[P]}</span></div><div class="hpbar"><i data-hp="all"></i></div><ul class="comp">${[...groups.values()].map(gr => `<li><span>${rankSvg(gr.rk, gr.o)}${esc(gr.nm)}</span><b>× ${gr.n}</b></li>`).join('')}</ul>${tip}`;
 }
 function htmlBuild() {
   const has = selUnits().some(u => u.builder);
@@ -285,6 +296,7 @@ export function updateBar() {
     b.classList.toggle('has', n > 0);
     b.setAttribute('aria-label', `Squadra ${k}: ${n ? n + (n === 1 ? ' mezzo' : ' mezzi') : 'vuota'}`);
   }
+  syncHero();
   const al = alarmList(), ab = $('btnAlarm');
   if (ab) {
     const fresh = al.length && S.time - al[0].t < 6;
@@ -292,6 +304,26 @@ export function updateBar() {
     const bd = ab.querySelector('.bdg'); const txt = al.length ? String(al.length) : '';
     if (bd.textContent !== txt) bd.textContent = txt;
   }
+}
+// Pulsante della Macchina di Villo sulla striscia degli ordini (solo in missione): un tocco la seleziona e porta lì la
+// visuale (su computer anche il tasto V). Quando è dal carrozziere il pulsante mostra il conto alla rovescia.
+function syncHero() {
+  const b = $('btnHero'); if (!b) return;
+  const h = S.hero;
+  if (!h) { if (!b.hidden) b.hidden = true; return; }
+  if (b.hidden) b.hidden = false;
+  const left = h.down && h.backAt != null ? Math.max(0, Math.ceil(h.backAt - S.time)) : 0, down = !!h.down;
+  const txt = down ? fmtTime(left).replace(/^0/, '') : 'Villo', el = b.querySelector('span');
+  if (el.textContent !== txt) el.textContent = txt;
+  b.classList.toggle('down', down);
+  const lab = down ? `Macchina di Villo: dal carrozziere, torna tra ${left} secondi` : 'Macchina di Villo: seleziona e porta lì la visuale';
+  if (b.getAttribute('aria-label') !== lab) b.setAttribute('aria-label', lab);
+}
+export function selectHero() {
+  if (!S || !S.hero) return;
+  const u = heroUnit();
+  if (!u) { toast('La Macchina di Villo è dal carrozziere.', 'warn'); return; }
+  setSel([u.id]); ui.placing = null; ui.amove = false; centerOn(u.x, u.y); stopInertia();
 }
 // Contatore dei mezzi selezionati sulla barra della mappa (a ogni fotogramma: costa poco e risponde subito).
 // Nella disposizione B è il riquadro della selezione: numero, salute media (barra) e, per un edificio, il nome.
@@ -389,6 +421,7 @@ export function initUI(cv) {
   $('btnStop').addEventListener('click', () => cmdStop(selUnits()));
   $('btnDesel').addEventListener('click', () => { setSel([]); ui.placing = null; ui.amove = false; });
   $('btnArmy').addEventListener('click', () => { if (S) selectArmy(); });
+  $('btnHero').addEventListener('click', selectHero);
   $('btnSound').addEventListener('click', () => setSound(!soundOn()));
   onAudioChange(syncSound); syncSound();
   onAudioChange(syncMusic); onMusicChange(syncMusic);
@@ -430,6 +463,7 @@ export const CONTROLS = `<p class="sec ctlh">Mouse e tastiera</p><dl class="cont
   <div><dt>Doppio clic</dt><dd>tutti i mezzi uguali sullo schermo</dd></div>
   <div><dt>A, poi clic</dt><dd>attacca-muovi verso un punto</dd></div>
   <div><dt>S · H · P</dt><dd>ferma · torna al comando · pausa</dd></div>
+  <div><dt>V</dt><dd>in missione: seleziona la Macchina di Villo e porta lì la visuale (anche il pulsante «Villo» sulla mappa)</dd></div>
   <div><dt>Ctrl+1–9 · 1–9</dt><dd>salva e richiama una squadra (le 1–4 anche dai pulsanti sulla mappa)</dd></div>
   <div><dt>Frecce · bordi</dt><dd>scorri la mappa (anche spazio o rotella premuta + trascina)</dd></div>
   <div><dt>Rotella</dt><dd>zoom</dd></div>
