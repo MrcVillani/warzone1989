@@ -114,3 +114,9 @@ Contratto:
 - `S.hero` `{ id, down, backAt, rank, xp }`, salvato; evento `hero` `{ state: 'down' | 'back', x, y }` con toast.
 - I colpi dell'eroe emettono `fx` con `hero: true` e `big: true` per il colpo grosso (oltre ai campi di sempre).
 - L'IA in autoplay la usa come un mezzo normale d'attacco.
+
+## Decisione sul bilanciamento
+
+Con la Macchina di Villo la campagna giocata dall'IA (autoplay, «normale», 6 partite per missione) va a 47 vittorie
+su 48 (39 su 48 senza): le missioni 1–7 al 100%, la 8 a 5 su 6. Il proprietario ha scelto di **lasciarla
+potentissima** così com'è: la campagna diventa più facile, ed è voluto.
