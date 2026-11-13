@@ -1,8 +1,27 @@
-// Dati di gioco: mappa, telai, propulsioni, armi, edifici, ricerche, difficoltà.
+// Dati di gioco: mappa, telai, propulsioni, armi, edifici, ricerche, meteo, gradi, difficoltà, campagna.
 // Nessuna dipendenza dal DOM: questo file è usato dal motore, dal client e dai test.
 
 export const TILE = 32, MW = 64, MH = 64, N = MW * MH;
-export const GROUND = 0, DIRT = 1, WATER = 2, ROCK = 3, FOREST = 4;
+export const GROUND = 0, DIRT = 1, WATER = 2, ROCK = 3, FOREST = 4, CITY = 5, ROAD = 6;
+// Terreni, nell'ordine dei codici qui sopra. ch: lettera nelle mappe disegnate (engine/maps/); walk: attraversabile dai
+// mezzi di terra (l'acqua solo dagli hovercraft); build: ci si può costruire. CITY è un isolato: si comporta come la
+// roccia. ROAD (asfalto, anche i ponti sui canali) è terreno piano: ci si passa più veloci (campo road delle
+// propulsioni) e ci si costruisce come sull'erba, così le basi e i giacimenti vicino alle strade restano usabili e un
+// edificio può fare da sbarramento, come già sulla terra battuta dei guadi.
+export const TERRAIN = [
+  { name: 'Erba', ch: '.', walk: true, build: true },
+  { name: 'Terra', ch: ':', walk: true, build: true },
+  { name: 'Acqua', ch: '~', walk: false, build: false },
+  { name: 'Roccia', ch: '^', walk: false, build: false },
+  { name: 'Bosco', ch: 'T', walk: false, build: false },
+  { name: 'Città', ch: '#', walk: false, build: false },
+  { name: 'Strada', ch: '=', walk: true, build: true },
+];
+// Tabelle per codice di terreno (1 = sì), per i controlli veloci di passabilità e piazzamento.
+export const WALKABLE = Uint8Array.from(TERRAIN, t => t.walk ? 1 : 0);
+export const BUILDABLE = Uint8Array.from(TERRAIN, t => t.build ? 1 : 0);
+// Casella percorribile con quel terreno: a terra, oppure anche l'acqua se water (hovercraft).
+export const walkable = (v, water) => WALKABLE[v] === 1 || (!!water && v === WATER);
 export const P = 0, E = 1;
 export const UNIT_CAP = 100;
 export const B0 = { x: 9, y: 9 };
@@ -15,12 +34,13 @@ export const CHASSIS = {
   H: { name: 'Bisonte', label: 'Pesante', tier: 3, hp: 500, armor: 4, cost: 140, wt: 3, size: [23, 16], rad: 12, req: 'chH' },
   X: { name: 'Mammut', label: 'Superpesante', tier: 4, hp: 800, armor: 6, cost: 220, wt: 4, size: [27, 19], rad: 14, req: 'chX' },
 };
+// road: moltiplicatore di velocità sulla strada (ROAD): le ruote ne guadagnano di più, i cingoli poco.
 export const PROPS = {
-  W: { name: 'Ruote', short: 'Ruote', tier: 1, speed: 1.0, hpm: 1.0, cost: 15, water: false, req: null },
-  HT: { name: 'Semicingoli', short: 'Semic.', tier: 2, speed: 0.85, hpm: 1.2, cost: 35, water: false, req: 'prHT' },
-  T: { name: 'Cingoli', short: 'Cingoli', tier: 3, speed: 0.68, hpm: 1.5, cost: 60, water: false, req: 'prT' },
-  V: { name: 'Hovercraft', short: 'Hover', tier: 3, speed: 1.35, hpm: 0.8, cost: 50, water: true, req: 'prV' },
-  TR: { name: 'Cingoli rinforzati', short: 'Cing. rinf.', tier: 4, speed: 0.58, hpm: 1.8, cost: 90, water: false, req: 'prTR' },
+  W: { name: 'Ruote', short: 'Ruote', tier: 1, speed: 1.0, hpm: 1.0, cost: 15, water: false, road: 1.35, req: null },
+  HT: { name: 'Semicingoli', short: 'Semic.', tier: 2, speed: 0.85, hpm: 1.2, cost: 35, water: false, road: 1.2, req: 'prHT' },
+  T: { name: 'Cingoli', short: 'Cingoli', tier: 3, speed: 0.68, hpm: 1.5, cost: 60, water: false, road: 1.1, req: 'prT' },
+  V: { name: 'Hovercraft', short: 'Hover', tier: 3, speed: 1.35, hpm: 0.8, cost: 50, water: true, road: 1.1, req: 'prV' },
+  TR: { name: 'Cingoli rinforzati', short: 'Cing. rinf.', tier: 4, speed: 0.58, hpm: 1.8, cost: 90, water: false, road: 1.1, req: 'prTR' },
 };
 // family: famiglia dell'arma (mg, cannon, rocket, artillery, fire, support): decide quale ricerca di danno vale.
 // proj: come si vede il colpo: 'tracer' (immediato), 'shell' (proiettile), 'rocket' (salva di `salvo` razzi ad area),
@@ -62,8 +82,90 @@ export const STRUCTS = {
   bunker: { name: 'Bunker pesante', m: true, tier: 3, w: 2, h: 2, hp: 1800, cost: 320, time: 40, sight: 8, armor: 8, req: 'stBK', desc: 'Difesa corazzata con cannone 75 mm. Gittata 7 caselle.' },
 };
 export const BUILD_ORDER = ['pump', 'factory', 'lab', 'tower', 'depot', 'bunker'];
-export const BUILDER = { hp: 240, speed: 66, cost: 60, time: 12, armor: 1 };
+// I genieri vanno su ruote (prop): sulla strada hanno il moltiplicatore delle ruote (road) e con la pioggia il loro fango.
+export const BUILDER = { hp: 240, speed: 66, cost: 60, time: 12, armor: 1, road: 1.35, prop: 'W' };
 export const PUMP_RATE = 1.6;
+
+/* ---------- meteo ----------
+   Vale per tutti e due i lati. S.weather è la condizione del momento (chiave di WEATHER).
+   name: nome per il giocatore; sight: moltiplicatore della vista di mezzi ed edifici (mai sotto SIGHT.min caselle);
+   offroad: moltiplicatore di velocità fuori strada (ogni casella che non è ROAD) per propulsione (chiavi di PROPS; i
+   genieri usano BUILDER.prop); fire: moltiplicatore del danno delle armi di famiglia 'fire'; burn: moltiplicatore
+   della durata degli incendi dei relitti (solo per il client: nel motore non cambia nulla); toast: avviso quando
+   questa condizione comincia a partita in corso.
+   Con la vista ridotta (sight < 1) anche il Direttorio spara solo a ciò che un suo mezzo o edificio vede (di solito
+   vede tutto, vedi canSee in world.js). Le gittate non cambiano mai. */
+export const WEATHER = {
+  clear: { name: 'Sereno', sight: 1, offroad: { W: 1, HT: 1, T: 1, V: 1, TR: 1 }, fire: 1, burn: 1, toast: 'Torna il sereno.' },
+  rain: { name: 'Pioggia', sight: 1, offroad: { W: 0.8, HT: 0.9, T: 1, V: 1, TR: 1 }, fire: 0.75, burn: 0.5, toast: 'Comincia a piovere.' },
+  fog: { name: 'Nebbia', sight: 0.7, offroad: { W: 1, HT: 1, T: 1, V: 1, TR: 1 }, fire: 1, burn: 1, toast: 'Cala la nebbia.' },
+};
+// Scelte del meteo per il menu della schermaglia (opts.weather di newGame, poi S.weatherMode): le tre condizioni
+// fisse e «Variabile», che parte dal sereno e cambia ogni WEATHER_VAR.min–max secondi di gioco.
+export const WEATHER_MODES = [
+  { id: 'clear', name: 'Sereno' }, { id: 'rain', name: 'Pioggia' }, { id: 'fog', name: 'Nebbia' }, { id: 'variable', name: 'Variabile' },
+];
+export const WEATHER_VAR = { min: 150, max: 240 };
+// Vista in caselle: mezzi armati, genieri, cantieri (gli edifici finiti hanno STRUCTS[].sight); min: la vista non
+// scende mai sotto questo valore, qualunque sia il meteo.
+export const SIGHT = { unit: 6.5, builder: 5.5, site: 2.5, min: 2.5 };
+
+/* ---------- gradi dei veterani ----------
+   Un mezzo armato (non i genieri; torrette ed edifici no) sale di grado con l'esperienza (campo xp del mezzo):
+   +RANK_XP.kill per ogni mezzo o edificio nemico a cui dà il colpo di grazia; i mezzi con il modulo riparazione
+   +RANK_XP.repair ogni RANK_XP.repairPts punti struttura riparati. Il grado (campo rank, indice in RANKS) è il più
+   alto con kills <= xp. kills: esperienza richiesta; dmg: moltiplicatore del danno inflitto; hp: moltiplicatore dei
+   punti struttura massimi (alla promozione crescono in proporzione anche quelli attuali); regen: frazione dei punti
+   massimi che il mezzo si ripara da solo ogni secondo, solo se da RANK_CALM secondi non spara e non subisce danni. */
+export const RANKS = [
+  { name: 'Recluta', kills: 0, dmg: 1, hp: 1, regen: 0 },
+  { name: 'Esperto', kills: 2, dmg: 1.08, hp: 1.10, regen: 0 },
+  { name: 'Veterano', kills: 5, dmg: 1.16, hp: 1.20, regen: 0 },
+  { name: 'Asso', kills: 10, dmg: 1.25, hp: 1.30, regen: 0.01 },
+];
+export const RANK_XP = { kill: 1, repair: 0.5, repairPts: 150 };
+export const RANK_CALM = 6;
+// Campagna: mezzi sopravvissuti che seguono il giocatore nella missione dopo (al più VETERANS_MAX, dal grado
+// VETERANS_RANK in su).
+export const VETERANS_MAX = 3, VETERANS_RANK = 2;
+
+/* ---------- Macchina di Villo (solo campagna) ----------
+   Mezzo speciale del giocatore, presente in ogni missione accanto al comando; non si produce e non c'è in
+   schermaglia. È un mezzo come gli altri (kind 'unit') con hero: 'villo' e progetto HERO.design: va su ruote (PROPS.W:
+   vantaggio delle strade, fango della pioggia), sale di grado, l'IA in autoplay lo usa come mezzo d'attacco.
+   levels: una riga per missione (livello 1–8 = numero della missione): hp punti struttura, armor corazza (più le
+   ricerche di corazza, come per tutti i mezzi), dmg danno di un colpo normale, worth valore in gasolio per i conti
+   dell'IA (circa cinque dei migliori mezzi di quel livello tecnologico). speed in pixel al secondo (senza ricerche).
+   respawn: se viene distrutta, torna accanto al comando dopo questi secondi di gioco (se il comando esiste ancora).
+   HERO_W «Bassi a palla»: scarica immediata che esplode sul bersaglio (proj 'bass') con danno ad area (splash,
+   caselle; pieno al centro, metà sul bordo); ogni bigEvery colpi è un «colpo grosso»: danno × bigDmg e area bigSplash.
+   Il telaio e l'arma stanno anche in CHASSIS.VILLO e WEAPONS.VILLO come voci non enumerabili: chi cerca per chiave
+   (CHASSIS[u.d.c], WEAPONS[u.d.w]) li trova, mentre gli elenchi (menu «Progetta», IA, ricerche) non li vedono. */
+export const HERO_W = {
+  key: 'VILLO', hero: true, name: 'Bassi a palla', short: 'Bassi', tier: 1, family: 'hero', dmg: 28, rof: 1.5, range: 6,
+  splash: 1.5, proj: 'bass', bigEvery: 3, bigDmg: 1.8, bigSplash: 2.4, cost: 0, req: null,
+};
+export const HERO = {
+  id: 'villo', name: 'Macchina di Villo', label: 'Berlina', design: { c: 'VILLO', p: 'W', w: 'VILLO' },
+  respawn: 60, speed: 80, size: [20, 11], rad: 10, weapon: HERO_W,
+  levels: [
+    { hp: 650, armor: 2, dmg: 28, worth: 375 },
+    { hp: 1200, armor: 3, dmg: 39, worth: 800 },
+    { hp: 1350, armor: 3, dmg: 40, worth: 800 },
+    { hp: 2400, armor: 5, dmg: 66, worth: 1375 },
+    { hp: 2550, armor: 5, dmg: 68, worth: 1375 },
+    { hp: 2700, armor: 5, dmg: 70, worth: 1375 },
+    { hp: 4400, armor: 7, dmg: 110, worth: 2100 },
+    { hp: 4700, armor: 7, dmg: 112, worth: 2100 },
+  ],
+};
+Object.defineProperty(CHASSIS, 'VILLO', {
+  enumerable: false,
+  value: { hero: true, name: HERO.name, label: HERO.label, tier: 1, hp: HERO.levels[0].hp, armor: HERO.levels[0].armor, cost: 0, wt: 1, size: HERO.size, rad: HERO.rad, req: null },
+});
+Object.defineProperty(WEAPONS, 'VILLO', { enumerable: false, value: HERO_W });
+// Il progetto è quello della Macchina di Villo (o usa una sua parte): non si produce e non si salva tra i progetti.
+export const isHeroDesign = d => !!d && !!((CHASSIS[d.c] && CHASSIS[d.c].hero) || (WEAPONS[d.w] && WEAPONS[d.w].hero));
 
 // Ricerche. tier: livello; per avviarne una di livello N+1 servono almeno TIER_GATE ricerche completate di livello N
 // (oltre ai requisiti specifici in req). Effetti (eff): armor (+corazza ai mezzi), dmg = [famiglia, +frazione],
@@ -178,7 +280,12 @@ export const AI_PLAYER = { label: 'IA del giocatore', first: 600, gap: 95, w0: 6
    - maxTier: livello massimo che il giocatore può ricercare in questa missione;
    - seed: seme della mappa (provvisorio, da fissare con il bilanciamento); map: ritocchi alla mappa
      (lake: lago al centro con due guadi; bases: 2 = seconda base nemica in ENEMY_BASE2);
-   - player: gasolio iniziale (res), genieri (builders), mezzi (units: progetti), edifici già pronti (structs);
+   - night: true = missione notturna (solo aspetto: il client la disegna di notte; nessun effetto sulle regole);
+   - weather: meteo della missione (chiave di WEATHER: 'clear', 'rain', 'fog'); weather2 (facoltativo): meteo dalla
+     fase 2 dell'obiettivo 'survive_then_destroy' in poi (in «Contrattacco» smette di piovere con il contrattacco);
+   - player: gasolio iniziale (res), genieri (builders), mezzi (units: progetti), edifici già pronti (structs); in
+     più, in ogni missione, la Macchina di Villo (HERO, livello = numero della missione) e i veterani portati dalla
+     missione prima (opts.veterans di newGame);
    - enemy: ricerche già completate (tech), livello massimo che può ricercare (maxTier), moltiplicatore di rendita
      (inc) e di tempo di ricerca (rs), costruisce o no (build: true, false o 'repair', cioè i genieri riparano
      soltanto e non piazzano edifici nuovi), ondate ('base' dalla sua base, 'edge' da fuori mappa,
@@ -194,7 +301,7 @@ const ET = n => AI_TECH.slice(0, n); // le prime n ricerche dell'IA, nel suo ord
 const LMG = { c: 'L', p: 'W', w: 'MG' }, MCN = { c: 'M', p: 'HT', w: 'CN' }, MHMG = { c: 'M', p: 'HT', w: 'HMG' }, HCN = { c: 'H', p: 'T', w: 'CN75' };
 export const MISSIONS = [
   {
-    id: 'testa-di-ponte', name: 'Testa di ponte', seed: 1101, maxTier: 1, map: {},
+    id: 'testa-di-ponte', name: 'Testa di ponte', seed: 1101, maxTier: 1, map: {}, night: true, weather: 'clear',
     brief: '12 ottobre 1989. La Brigata Aurora ha passato il Serra di notte e tiene una striscia di riva. ' +
       'A sud-est il Direttorio Ferreo ha lasciato un avamposto senza fabbriche, ma irto di torrette che i suoi genieri riparano. ' +
       'Metti in funzione sei pompe per dare gasolio alla testa di ponte, poi spazza via l’avamposto.',
@@ -206,7 +313,7 @@ export const MISSIONS = [
     },
   },
   {
-    id: 'pozzi-del-guado', name: 'I pozzi del guado', seed: 2202, maxTier: 2, map: {},
+    id: 'pozzi-del-guado', name: 'I pozzi del guado', seed: 2202, maxTier: 2, map: {}, night: false, weather: 'clear',
     brief: 'I pozzi lungo il guado sono l’unica riserva di gasolio rimasta nella valle, e il Direttorio li vuole quanto noi. ' +
       'La sua base è a poche ore di marcia e manderà le prime colonne presto. ' +
       'Metti in funzione otto pompe e tienile attive per nove minuti di fila: ai convogli basta questo.',
@@ -218,7 +325,7 @@ export const MISSIONS = [
     },
   },
   {
-    id: 'colonna-rifornimenti', name: 'La colonna dei rifornimenti', seed: 3303, maxTier: 2, map: {},
+    id: 'colonna-rifornimenti', name: 'La colonna dei rifornimenti', seed: 3303, maxTier: 2, map: {}, night: false, weather: 'clear',
     brief: 'Una nostra colonna di rifornimenti è ferma in fondo alla valle, con il ponte ancora da riparare. ' +
       'Il Direttorio non ha basi in zona, ma i suoi reparti mobili entreranno dai bordi, uno dopo l’altro e sempre più numerosi. ' +
       'Resisti dodici minuti, finché la colonna non è passata.',
@@ -230,7 +337,7 @@ export const MISSIONS = [
     },
   },
   {
-    id: 'passo-dei-larici', name: 'Il passo dei larici', seed: 4401, maxTier: 3, map: {},
+    id: 'passo-dei-larici', name: 'Il passo dei larici', seed: 4401, maxTier: 3, map: {}, night: false, weather: 'fog',
     brief: 'Oltre il passo dei larici il Direttorio ha messo in piedi la sua prima base vera, con fabbrica e laboratorio. ' +
       'Da lì partono i mezzi che ci hanno colpito al guado. ' +
       'Distruggi il comando, le fabbriche e i genieri nemici e apri la strada verso nord.',
@@ -242,7 +349,7 @@ export const MISSIONS = [
     },
   },
   {
-    id: 'diga-serra-alta', name: 'La diga di Serra Alta', seed: 5564, maxTier: 3, map: { lake: true },
+    id: 'diga-serra-alta', name: 'La diga di Serra Alta', seed: 5564, maxTier: 3, map: { lake: true }, night: false, weather: 'rain',
     brief: 'Il Direttorio ha aperto le chiuse della diga di Serra Alta e metà valle è finita sott’acqua. ' +
       'La sua base è oltre il lago: si arriva solo dai due guadi stretti ai lati, oppure sull’acqua con gli hovercraft. ' +
       'Scegli la strada e distruggi la base.',
@@ -254,7 +361,7 @@ export const MISSIONS = [
     },
   },
   {
-    id: 'due-fuochi', name: 'Due fuochi', seed: 6612, maxTier: 3, map: { bases: 2 },
+    id: 'due-fuochi', name: 'Due fuochi', seed: 6612, maxTier: 3, map: { bases: 2 }, night: false, weather: 'clear',
     brief: 'Il nemico ha diviso le forze in due basi, una a est e una a sud-est, e prova a stringerci in mezzo. ' +
       'Se ne resta in piedi una, l’altra rinasce in pochi giorni. ' +
       'Distruggi tutte e due le basi del Direttorio.',
@@ -269,7 +376,7 @@ export const MISSIONS = [
     },
   },
   {
-    id: 'contrattacco', name: 'Contrattacco', seed: 7707, maxTier: 4, map: {},
+    id: 'contrattacco', name: 'Contrattacco', seed: 7707, maxTier: 4, map: {}, night: false, weather: 'rain', weather2: 'clear',
     brief: 'Il Direttorio ha richiamato le riserve e lancia tutto contro la nostra linea. ' +
       'Per otto minuti dovrai solo tenere: i rinforzi non arriveranno prima. ' +
       'Poi passa al contrattacco e distruggi la base da cui partono le colonne.',
@@ -281,7 +388,7 @@ export const MISSIONS = [
     },
   },
   {
-    id: 'comando-direttorio', name: 'Il comando del Direttorio', seed: 8838, maxTier: 4, map: {},
+    id: 'comando-direttorio', name: 'Il comando del Direttorio', seed: 8838, maxTier: 4, map: {}, night: false, weather: 'clear',
     brief: '31 ottobre 1989. Il comando del Direttorio Ferreo è in fondo alla valle, dietro bunker e torrette. ' +
       'Ha i mezzi migliori e una rendita che sembra non finire mai. ' +
       'È l’assalto finale: distruggi comando, fabbriche e genieri, e la Valle del Serra è libera.',

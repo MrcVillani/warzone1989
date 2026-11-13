@@ -85,16 +85,62 @@ proiettili in volo, che `loadState` rimette nell'array `proj`.
 | `index.html` | struttura della pagina (barra, mappa, pannello, copertina) |
 | `style.css` | stile e token di colore |
 | `state.js` | stato del solo client: selezione, camera, scheda attiva, effetti |
-| `render.js` | terreno, edifici, mezzi, effetti, nebbia, minimappa |
+| `render.js` | coordina il fotogramma: visuale, ordine degli strati, nebbia, minimappa, scossa dello schermo (spegnibile, spenta con «riduci movimento» e in «minima») |
+| `look.js` | costanti dell'aspetto (palette dei materiali, luce, colori dei lati) |
+| `terrain.js` | tela unica della mappa cotta a pezzi di 8×8 caselle: avvia il worker del terreno da un Blob e, se mancano Worker o OffscreenCanvas, cuoce sul filo principale un pezzo per fotogramma |
+| `terrain-bake.js` | cottura del terreno «A+» (materiali sfumati, rilievo illuminato, erba, rive, massi, sterrati, alberi e, per le mappe disegnate, città e strade), comune a worker e filo principale |
+| `terrain-worker.js` | Web Worker del terreno; `scripts/build.mjs` lo impacchetta a parte e lo mette nel gioco come testo (`__TERRAIN_WORKER__`) |
+| `decals.js` | segni che restano: crateri e bruciature timbrati sul terreno (tetto 220), impronte dei cingoli su una tela a metà risoluzione che sbiadisce |
+| `vehicles.js` | sagome dei mezzi cotte per direzione (cupola, portelli, cingoli a maglie, insegne, filo di luce, ombra), beccheggio, torretta verso il bersaglio, scarico, bossoli, relitti in fiamme |
+| `structs.js` | edifici: tetti in lamiera e cemento, camino che fuma, luci di segnalazione, ombra |
+| `atmos.js` | acqua animata (increspature, riflesso, cerchi e schizzi), ombre delle nuvole, alberi che ondeggiano e si piegano all'onda d'urto, correzione colore |
+| `light.js` | aloni additivi di esplosioni e incendi; di notte (`S.night`) tela della luce a 1/4 con fari, lampade, finestre e contorno del colore del lato sui mezzi |
+| `effects.js` | effetti: esplosioni a fasi (lampo, palla di fuoco, onda d'urto, detriti, fungo, cratere), scintille, torretta sbalzata, crollo degli edifici a fasi |
 | `input.js` | selezione, ordini, scorciatoie; su touch un dito scorre la mappa con inerzia, due dita zoomano, tocco con aggancio, doppio tocco, tocco lungo con riquadro; squadre 1–4 condivise con Ctrl+1–9 |
 | `ui.js` | pannello (Costruisci, Produzione, Ricerca, Progetta), avvisi, barra |
 | `screens.js` | menu principale (Campagna, Schermaglia), elenco missioni, briefing, indicatore dell'obiettivo, rapporti di fine missione e di schermaglia, schermata finale, conferma d'uscita |
 | `campaign.js` | salvataggio della campagna sul dispositivo (`localStorage`, chiave `wz.campagna`) |
 | `audio.js` | suoni sintetizzati con Web Audio, posizionati rispetto alla visuale, con limite di voci; volume e acceso/spento salvati sul dispositivo |
-| `music.js` | colonna sonora originale generata in tempo reale: strati calma, tensione e battaglia sullo stesso orologio e sulla stessa armonia, con dissolvenze guidate dall'intensità dei combattimenti; temi del menu, vittoria, sconfitta e cambio di fase; volume e acceso/spento salvati sul dispositivo |
+| `music.js` | colonna sonora originale generata in tempo reale: strati calma, tensione e battaglia sullo stesso orologio e sulla stessa armonia, con dissolvenze guidate dall'intensità dei combattimenti; temi del menu, vittoria, sconfitta e cambio di fase; un profilo per ogni missione della campagna (`musicMission(id, fase)`: tonalità, tempo, variante del tema, strumenti), frase «Valle liberata» alla fine della campagna; scala di epicità 1–8 per missione (`epic`, strati che si sommano gradino per gradino), motivo della Brigata (`BRIGATA`) che si completa lungo la campagna e culmine a orchestra piena dal gradino 6 negli scontri più intensi, entro un limite di voci (`MUSIC_LIMITS`); volume e acceso/spento salvati sul dispositivo |
+| `urban.js` | disegno di città (isolati a corte, tetti, poderi), strade con raccordi e mezzeria, ponti, nomi dei luoghi delle mappe disegnate |
+| `weather.js` | meteo, solo aspetto: pioggia (terreno lucido, pozzanghere, gocce, schizzi, lampo e tuono) e nebbia (velo e banchi), con passaggio graduale al cambio; segue i livelli di qualità e «riduci movimento» |
+| `livery.js` | livree dei veterani sempre più vistose per grado (Esperto, Veterano, Asso), dipinte sopra la sagoma di serie per ogni progetto, nello stile di ciascun lato |
+| `veterans.js` | nomi dei gradi, soprannomi degli assi del giocatore (solo client), lampo e suono della promozione (evento `rank`), pulsante e conto alla rovescia della Macchina di Villo (evento `hero`) |
+| `hero.js` | la Macchina di Villo (solo campagna): berlina grigia disegnata da zero, livree per grado, bagagliaio con l'impianto stereo e colpi «Bassi a palla» (onde sonore ed esplosione speciale, colpo grosso con lampo) |
+| `dims.js` | ingombro disegnato dei mezzi (genieri, Macchina di Villo, telai) per scarichi, fari, relitti, impronte e neon |
+| `latina.js` | testi con un sorriso nella sola schermaglia su Latina: rapporto finale (uno di tre a caso per partita), battute brevi in partita nate da eventi esistenti (strade, ponti, mezzi distrutti in città, prima pompa, prima fabbrica nemica), al massimo una ogni 90 s e una volta ciascuna; nota sulle buche nel menu |
+| `prefs.js` | scelte ricordate sul dispositivo: mappa della schermaglia (`wz.mappa`), nomi dei luoghi (`wz.luoghi`) e scossa dello schermo (`wz.scossa`) |
+| `anim.js` | animazioni del client: assetto e rinculo dei mezzi, porte delle fabbriche, cantiere con gru, palla di fuoco, macerie degli edifici; rispetta qualità adattiva e «riduci movimento» |
 | `alerts.js` | posizione degli avvisi toccabili, pulsante «Allarme» (ultimi scontri), frecce ai bordi per gli scontri fuori visuale |
-| `quality.js` | qualità adattiva degli effetti (alta, media, bassa): misura il tempo per fotogramma e regola particelle, tracce e risoluzione della tela; scelta «Effetti» salvata sul dispositivo |
-| `main.js` | collega eventi e moduli, ciclo di gioco, aggancio di test `window.__wz` (anche `fxq()` e `setFx()` per la qualità) |
+| `quality.js` | qualità degli effetti a quattro livelli (alta, media, bassa, minima) e «auto» adattiva: misura il tempo per fotogramma e regola particelle, animazioni, luce e risoluzione della tela; con più di 120 mezzi «auto» parte da «bassa» e può scendere a «minima», che costa quanto la «bassa» di prima; scelta «Effetti» salvata sul dispositivo |
+| `main.js` | collega eventi e moduli, ciclo di gioco, aggancio di test `window.__wz` (anche `fxq()` e `setFx()` per la qualità, `gfx()` per come si cuoce il terreno e se la visuale è pronta) |
+
+## Mappe disegnate
+
+`engine/maps/` contiene le mappe disegnate a mano per la schermaglia: ogni mappa è un testo di 64 righe (una lettera
+per terreno, legenda nel file), con le basi dei due lati, i giacimenti e i luoghi principali. `MAPS` elenca le mappe
+per il menu (`casuale`, `latina`); `newGame(diff, seed, { map: 'latina' })` avvia la schermaglia su una mappa disegnata
+e `S.map` la ricorda nel salvataggio. Due terreni valgono solo qui: `CITY` (isolato, non si attraversa né si
+costruisce) e `ROAD` (strada: si costruisce e i mezzi vanno più veloci secondo `PROPS[p].road`; A* preferisce le
+strade). `homeOf(o)` dà il centro della base di partenza di un lato. `S.night` è vero nelle missioni notturne
+(campo `night` di `MISSIONS`, oggi solo la 1) e serve solo alla grafica.
+
+## Meteo, gradi e Macchina di Villo
+
+- **Meteo** (`WEATHER` in `engine/data.js`): `clear`, `rain`, `fog`. Pioggia: fuori strada ruote ×0,8 e semicingoli
+  ×0,9, lanciafiamme ×0,75. Nebbia: vista ×0,7 (minimo `SIGHT.min`), si spara solo a ciò che il proprio lato vede.
+  `S.weather` è il tempo attuale, `S.weatherMode` la scelta della schermaglia (`newGame(diff, seed, { weather })`,
+  anche `variable`: cambia ogni `WEATHER_VAR` secondi, deterministico dal seme). Le missioni hanno il campo `weather`;
+  in «Contrattacco» la pioggia smette alla fase 2. Evento `weather` `{ from, to }` con avviso.
+- **Gradi** (`RANKS`, `RANK_XP`, `RANK_CALM`): ogni mezzo ha `xp` e `rank` (0–3). Esperienza al colpo di grazia
+  (anche per il nemico) e alle riparazioni; ogni grado moltiplica danno e punti struttura, l'asso si ripara da solo
+  dopo `RANK_CALM` secondi senza combattere. Genieri ed edifici esclusi. Evento `rank`.
+- **Veterani in campagna** (`VETERANS_MAX`, `VETERANS_RANK`): alla vittoria fino a 3 mezzi dal grado Veterano in su
+  passano alla missione dopo (campo `veterans` dello stato della campagna).
+- **Macchina di Villo** (`HERO`, `HERO_W`): mezzo speciale in tutte le missioni della campagna, mai in schermaglia né
+  producibile; livello di forza per missione (`HERO.levels`); arma «Bassi a palla» con un colpo grosso ogni terzo
+  (`fx` con `hero` e `big`). Distrutta, non fa perdere: torna dopo `HERO.respawn` secondi accanto al comando con grado
+  ed esperienza (`S.hero`, evento `hero`; grado ed esperienza passano da una missione all'altra nel campo `hero`).
 
 ## Campagna
 
@@ -115,10 +161,20 @@ bilanciamento in [`bilanciamento.md`](bilanciamento.md).
 - `dist/index.html`: documento completo, per browser e per l'app Android;
 - `dist/artifact.html`: frammento per l'anteprima pubblicata su claude.ai.
 
+Il worker del terreno (`client/terrain-worker.js`) si impacchetta a parte e finisce nel file come testo, così il gioco
+resta un solo file anche con il Web Worker.
+
+## Colonna sonora
+
+`npm run ost` registra con lo stesso motore musicale (`client/music.js` su `OfflineAudioContext`) l'album
+«Operazione Valle Grigia» in `dist/ost/`: 11 tracce MP3 a 192 kbps (tema del menu, una traccia per missione,
+«Valle liberata», «Brigata sconfitta») con tag ID3 e `scaletta.txt`, che riporta il gradino di epicità di ogni brano. `npm run ost -- 3 8` rigenera solo alcune
+tracce. La cartella è generata e non sta nel repository.
+
 ## Android
 
 `android/` è un guscio nativo minimo: una `MainActivity` con una WebView a schermo intero e in orizzontale che carica
-`file:///android_asset/index.html`. Nessun permesso, nessuna libreria AndroidX. `scripts/android-sdk.sh` installa
+`file:///android_asset/index.html`. Unico permesso `VIBRATE`, nessuna libreria AndroidX. `scripts/android-sdk.sh` installa
 l'SDK in `~/android-sdk` (piattaforma e build-tools 35); `npm run android` fa la build web, copia `dist/index.html`
 negli asset (file generato, ignorato da git), lancia `./gradlew assembleDebug` e copia l'APK in
 `dist/warzone1989.apk`, firmato con la chiave di debug della macchina di build.

@@ -16,7 +16,8 @@ const fakeGame = (i, over = {}) => ({ phase: 'won', mission: MISSIONS[i].id, tim
 
 test('newCampaign: solo la prima missione sbloccata, niente vinto, niente ricerche, progetto di partenza', () => {
   const c = newCampaign();
-  assert.deepEqual(c, { v: CAMPAIGN_VERSION, unlocked: 1, done: [], tech: {}, designs: DEFAULT_DESIGNS, best: {} });
+  // Piano 10: lo stato della campagna ha anche i veterani (nessuno) e la Macchina di Villo (recluta, senza esperienza).
+  assert.deepEqual(c, { v: CAMPAIGN_VERSION, unlocked: 1, done: [], tech: {}, designs: DEFAULT_DESIGNS, best: {}, veterans: [], hero: { rank: 0, xp: 0 } });
   assert.deepEqual(c.designs, [LMG]);
   assert.notEqual(c.designs[0], DEFAULT_DESIGNS[0], 'i progetti sono una copia, non i dati condivisi');
   c.designs[0].w = 'CN';
@@ -88,7 +89,8 @@ test('startMission: seme della missione, ricerche e progetti della campagna, opz
 test('missionOpts: copie delle ricerche e dei progetti; missione sconosciuta è un errore', () => {
   const c = { ...newCampaign(), tech: { dMG1: true }, designs: [LMG] };
   const o = missionOpts(c, 'pozzi-del-guado');
-  assert.deepEqual(o, { mission: 1, tech: { dMG1: true }, designs: [LMG] });
+  // Piano 10: le opzioni portano anche i veterani e la Macchina di Villo della campagna (qui nessuno e recluta).
+  assert.deepEqual(o, { mission: 1, tech: { dMG1: true }, designs: [LMG], veterans: [], hero: { rank: 0, xp: 0 } });
   o.tech.mot1 = true; o.designs[0].c = 'M';
   assert.deepEqual(c.tech, { dMG1: true });
   assert.deepEqual(c.designs, [LMG]);
@@ -200,6 +202,8 @@ test('normalizeCampaign ripara dati corrotti: sblocchi, vinte, ricerche, progett
   assert.deepEqual(c, {
     v: CAMPAIGN_VERSION, unlocked: 3, done: ['testa-di-ponte', 'pozzi-del-guado'],
     tech: { dMG1: true, chM: true, arm3: true }, designs: [LMG, MCN], best: { 'testa-di-ponte': 300 },
+    // piano 10: uno stato salvato senza veterani e senza Macchina di Villo vale «nessuno» e «recluta»
+    veterans: [], hero: { rank: 0, xp: 0 },
   });
 });
 

@@ -77,7 +77,12 @@ function fingers(cdp) {
     move: pts => send('touchMove', pts),
     end: pts => send('touchEnd', pts || []),
     async tap(x, y) { await send('touchStart', [{ x, y }]); await sleep(40); await send('touchEnd', []); await sleep(60); },
-    async doubleTap(x, y) { await F.tap(x, y); await sleep(90); await F.tap(x, y); },
+    // Doppio tocco svelto (dita giù 30 ms, 40 ms tra i due): con la grafica del piano 08 ogni invio CDP aspetta il
+    // fotogramma in corso e con i tempi di prima (tap + 90 ms) il gestore misurava a volte più di DBL_MS (350 ms).
+    async doubleTap(x, y) {
+      await send('touchStart', [{ x, y }]); await sleep(30); await send('touchEnd', []); await sleep(40);
+      await send('touchStart', [{ x, y }]); await sleep(30); await send('touchEnd', []); await sleep(60);
+    },
     async long(x, y, ms = 650) { await send('touchStart', [{ x, y }]); await sleep(ms); await send('touchEnd', []); await sleep(60); },
     // Trascina un dito da a a b in n passi di dt ms; hold: ms fermo prima di alzarlo; long: tocco lungo prima di muoversi.
     async drag(a, b, { n = 12, dt = 16, hold = 0, long = 0, end = true } = {}) {
@@ -359,7 +364,7 @@ async function phoneChecks(page, name, check) {
     await page.evaluate(() => { const t = window.__t, W = window.__wz; W.ui.sel = []; t.center(16 * 32, 50 * 32); });
     await page.waitForTimeout(400);
     const b2c = await page.evaluate(() => window.__t.rect('[data-squad="2"]'));
-    await F.tap(b2c.x, b2c.y); await sleep(80); await F.tap(b2c.x, b2c.y);
+    await F.doubleTap(b2c.x, b2c.y);
     const r2 = await page.evaluate(s => { const t = window.__t, m = t.mid(); return { sel: t.sel(), d: Math.hypot(m.x - s.x, m.y - s.y) }; }, s);
     check(JSON.stringify(r2.sel) === JSON.stringify(s.ids) && r2.d < 64, `${name}: doppio tocco sulla squadra 2 la seleziona e porta lì la visuale (centro a ${fmt(r2.d)} px dalla squadra)`);
     // squadra vuota: un tocco avvisa e non cambia la selezione

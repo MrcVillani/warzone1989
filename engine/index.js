@@ -2,6 +2,7 @@
 export * from './data.js';
 export * from './util.js';
 export { genMap, bfsReach, missionMap, FORDS, LAKE_HALF } from './map.js';
+export { MAPS, MAP_BY, mapDef, drawnMap, parseMap } from './maps/index.js';
 export * from './world.js';
 export * from './path.js';
 export * from './orders.js';

@@ -2,7 +2,7 @@
 // conferma d'uscita; e l'indicatore dell'obiettivo sopra la mappa durante le missioni.
 // Le regole della campagna (sblocchi, ricerche portate, miglior tempo) sono nel motore: qui solo le schermate.
 import {
-  P, DIFF, MISSIONS, TECH_BY, TIERS, S, startMission, finishMission, campaignSummary, canPlayMission,
+  P, DIFF, MISSIONS, MAPS, TECH_BY, TIERS, S, gridRef, homeOf, startMission, finishMission, campaignSummary, canPlayMission,
 } from '../engine/index.js';
 import { ui } from './state.js';
 import { startGame, resetClient, closeOverlay, showHelp, closeHelp, toast, fmtTime, ov, randomSeed, togglePause } from './ui.js';
@@ -10,6 +10,9 @@ import { drawMissionMap } from './render.js';
 import { getCampaign, setCampaign, resetCampaign, campaignDiff, setCampaignDiff } from './campaign.js';
 import { uiSfx } from './audio.js';
 import { musicSting } from './music.js';
+import { mapPref, setMapPref, mapInfo, weatherPref, setWeatherPref, WEATHER_PREFS } from './prefs.js';
+import { weatherName } from './weather.js';
+import { isLatina, latinaEnd, LATINA_NOTE } from './latina.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -26,6 +29,12 @@ function open(kind, html) {
 }
 const on = (id, fn) => { const b = $(id); if (b) b.addEventListener('click', fn); };
 const diffChips = (attr, cur) => Object.entries(DIFF).map(([k, v]) => `<button class="btn ${cur === k ? 'on' : ''}" data-${attr}="${k}" aria-pressed="${cur === k}">${v.label}</button>`).join('');
+const mapChips = cur => MAPS.map(m => `<button class="btn ${cur === m.id ? 'on' : ''}" data-map="${m.id}" aria-pressed="${cur === m.id}">${esc(m.name)}</button>`).join('');
+const weatherChips = cur => WEATHER_PREFS.map(id => `<button class="btn ${cur === id ? 'on' : ''}" data-wx="${id}" aria-pressed="${cur === id}">${esc(weatherName(id))}</button>`).join('');
+// Mezzi del giocatore con il grado di Veterano o Asso già in campo all'inizio della missione: sono quelli che
+// arrivano dalla missione precedente (li mette il motore). La Macchina di Villo non conta: c'è sempre.
+const followers = () => (S ? S.ents.filter(e => e.kind === 'unit' && !e.dead && e.owner === P && !e.hero && (e.rank || 0) >= 2).length : 0);
+const followText = n => (n === 1 ? 'Ti segue 1 veterano della missione precedente.' : `Ti seguono ${n} veterani della missione precedente.`);
 function bindChips(o, attr, fn) {
   o.querySelectorAll(`[data-${attr}]`).forEach(b => b.addEventListener('click', () => {
     o.querySelectorAll(`[data-${attr}]`).forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
@@ -40,6 +49,7 @@ export function showStart() {
   const next = sum.next != null ? sum.missions[sum.next] : null;
   const campLabel = sum.finished ? 'Rigioca le missioni' : sum.completed === 0 && sum.next === 0 ? 'Inizia la campagna' : `Riprendi: missione ${sum.next + 1} · ${esc(next.name)}`;
   const campInfo = sum.finished ? 'Campagna conclusa: la valle è libera.' : sum.completed ? `${sum.completed}/${sum.total} missioni vinte · ${plural(sum.techCount, 'ricerca', 'ricerche')} · ${plural(sum.designCount, 'progetto', 'progetti')}` : `${sum.total} missioni, dalla testa di ponte all’assalto finale.`;
+  const mp = mapInfo(mapPref());
   const o = open('start', `<div class="card menu" role="dialog" aria-labelledby="ovt">
     <p class="eyebrow">Ottobre 1989 · Valle del Serra</p>
     <h1 class="title" id="ovt">WARZONE <span>1989</span></h1>
@@ -56,19 +66,30 @@ export function showStart() {
       <section class="mode" aria-labelledby="mSkirm">
         <p class="mk">Schermaglia</p>
         <h2 class="mt" id="mSkirm">Partita libera</h2>
-        <p class="md">Una carta a caso con tutti i livelli tecnologici. Vinci quando il nemico non ha più comando, fabbriche né genieri.</p>
+        <div class="diff mapsel" role="group" aria-label="Mappa"><span class="lbl">Mappa</span>${mapChips(mp.id)}</div>
+        <div class="diff mapsel wxsel" role="group" aria-label="Meteo"><span class="lbl">Meteo</span>${weatherChips(weatherPref())}</div>
+        <p class="md">${esc(mp.desc)}${mp.id === 'latina' ? `<br>${esc(LATINA_NOTE)}` : ''}</p>
         <div class="diff"><span class="lbl">Avversario</span>${diffChips('diff', ui.diff)}</div>
-        <p class="mp">Carta operativa n. ${S.seed % 10000}</p>
-        <div class="mact"><button class="primary" id="ovStart">Inizia la schermaglia</button><button class="btn" id="ovMap">Cambia carta</button></div>
+        ${mp.id === 'casuale' ? `<p class="mp">Carta operativa n. ${S.seed % 10000}</p>` : '<p class="mp credit">Ispirata alla geografia della città; disegnata a mano.</p>'}
+        <div class="mact"><button class="primary" id="ovStart">Inizia la schermaglia</button>${mp.id === 'casuale' ? '<button class="btn" id="ovMap">Cambia carta</button>' : ''}</div>
       </section>
     </div>
     <div class="mfoot"><button class="btn" id="ovHelp">Comandi</button><p class="hint">Un clic su un tuo mezzo lo seleziona, un clic sulla mappa gli dà l’ordine. Suono e musica partono al primo tocco: «Suono» nella barra spegne tutto, in «Comandi» regoli la musica.</p></div>
   </div>`);
   bindChips(o, 'diff', d => { ui.diff = d; });
+  // cambio di mappa: la partita sotto il menu si riprepara sulla mappa nuova (la si vede dietro la copertina)
+  bindChips(o, 'map', id => {
+    if (id === mapPref()) return;
+    setMapPref(id); startGame(ui.diff, randomSeed()); showStart();
+    const b = o.querySelector(`[data-map="${id}"]`); if (b) b.focus();
+  });
+  // cambio di meteo: stessa carta, ripreparata con il tempo nuovo (lo si vede dietro la copertina)
+  bindChips(o, 'wx', id => { if (id === weatherPref()) return; setWeatherPref(id); startGame(ui.diff, S.seed); });
   on('ovMap', () => { startGame(ui.diff, randomSeed()); showStart(); });
   on('ovStart', () => {
     startGame(ui.diff, S.seed); closeOverlay(); refreshObjective();
-    toast('Sei nel settore B2. Manda i genieri sui giacimenti vicini.');
+    const h = homeOf(P);
+    toast(`Sei nel settore ${gridRef(h.x, h.y)}. Manda i genieri sui giacimenti vicini.`);
   });
   on('ovCamp', () => { if (sum.finished) showCampaign(); else showBrief(sum.next); });
   on('ovMissions', () => showCampaign());
@@ -127,6 +148,10 @@ export function showBrief(i) {
   const cd = campaignDiff(), M = MISSIONS[i];
   const carry = sum.techCount || sum.designCount > 1 ? `${plural(sum.techCount, 'ricerca', 'ricerche')} e ${plural(sum.designCount, 'progetto', 'progetti')} dalle missioni precedenti` : 'nessuna: si parte dal livello I';
   const limit = S.timeLimit ? `<div><dt>Tempo massimo</dt><dd>${fmtTime(S.timeLimit)}</dd></div>` : '';
+  // meteo della missione (solo se non è sereno) e veterani che arrivano dalla missione precedente
+  const wxId = S.weather === 'rain' || S.weather === 'fog' ? S.weather : M.weather === 'rain' || M.weather === 'fog' ? M.weather : null;
+  const wxLine = wxId ? `<div class="wx"><dt>Meteo</dt><dd>${esc(weatherName(wxId).toLowerCase())}</dd></div>` : '';
+  const vets = followers(), vetLine = vets ? `<div class="vets"><dt>Veterani</dt><dd>${followText(vets)}</dd></div>` : '';
   const o = open('brief', `<div class="card wide" role="dialog" aria-labelledby="ovt">
     <p class="eyebrow">Missione ${i + 1} di ${sum.total} · Operazione Valle Grigia${m.done ? ` · già vinta${m.best != null ? `, miglior tempo ${fmtTime(m.best)}` : ''}` : ''}</p>
     <h2 class="title t2" id="ovt"><span>${num(i)}</span> ${esc(m.name)}</h2>
@@ -139,7 +164,7 @@ export function showBrief(i) {
           <div class="obj"><dt>Obiettivo</dt><dd>${esc(m.objectiveText)}</dd></div>
           <div><dt>Livelli tecnologici</dt><dd>${m.tiers}${m.maxTier < TIERS.length ? ` · oltre il ${TIERS[m.maxTier - 1]} non si ricerca` : ''}</dd></div>
           <div><dt>Dalla campagna</dt><dd>${carry}</dd></div>
-          ${limit}
+          ${limit}${wxLine}${vetLine}
         </dl>
         <div class="diff"><span class="lbl">Avversario</span>${diffChips('bdiff', cd)}</div>
       </div>
@@ -149,7 +174,7 @@ export function showBrief(i) {
   drawMissionMap($('briefMap'));
   // la difficoltà cambia il nemico della missione: si riprepara la partita (stessa carta)
   bindChips(o, 'bdiff', d => { setCampaignDiff(d); beginMission(i); drawMissionMap($('briefMap')); });
-  on('ovGo', () => { closeOverlay(); refreshObjective(); toast(`Obiettivo: ${m.objectiveText}.`); });
+  on('ovGo', () => { closeOverlay(); refreshObjective(); toast(`Obiettivo: ${m.objectiveText}.`); const n = followers(); if (n) toast(followText(n)); });
   on('ovBack', () => showCampaign());
   $('ovGo').focus();
 }
@@ -204,10 +229,12 @@ export function showEnd(won, reason) {
 }
 function showSkirmishEnd(won) {
   const st = S.stats;
+  // su Latina titolo e testo con un sorriso (latina.js); altrove quelli della valle
+  const lat = isLatina() ? latinaEnd(won) : null;
   open('end', `<div class="card" role="dialog" aria-labelledby="ovt" style="border-top-color:${won ? 'var(--olive)' : 'var(--brick)'}">
-    <p class="eyebrow">Rapporto finale · schermaglia · ${fmtTime(S.time)} · ${DIFF[S.diff].label}</p>
-    <h2 class="title" id="ovt">${won ? 'Valle <span>liberata</span>' : 'Brigata <span>sconfitta</span>'}</h2>
-    <p class="brief">${won ? 'Il comando e le fabbriche del Direttorio Ferreo sono fuori uso. I giacimenti della valle sono tuoi.' : 'Hai perso il comando, le fabbriche e tutti i genieri. Il Direttorio Ferreo controlla la valle.'}</p>
+    <p class="eyebrow">Rapporto finale · schermaglia${S.map ? ` · ${esc(mapInfo(S.map).name)}` : ''} · ${fmtTime(S.time)} · ${DIFF[S.diff].label}</p>
+    <h2 class="title" id="ovt">${lat ? lat.title : won ? 'Valle <span>liberata</span>' : 'Brigata <span>sconfitta</span>'}</h2>
+    <p class="brief">${lat ? esc(lat.text) : won ? 'Il comando e le fabbriche del Direttorio Ferreo sono fuori uso. I giacimenti della valle sono tuoi.' : 'Hai perso il comando, le fabbriche e tutti i genieri. Il Direttorio Ferreo controlla la valle.'}</p>
     <div class="stats"><div><b>${st.made[P]}</b><span>Mezzi prodotti</span></div><div><b>${st.kills[P]}</b><span>Nemici distrutti</span></div><div><b>${st.lost[P]}</b><span>Perdite</span></div><div><b>${st.built[P]}</b><span>Edifici costruiti</span></div></div>
     <div class="actions"><button class="primary" id="ovAgain">Nuova operazione</button><button class="btn" id="ovLook">Guarda la mappa</button></div>
   </div>`);

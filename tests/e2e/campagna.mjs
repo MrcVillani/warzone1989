@@ -9,6 +9,7 @@ import { createRequire } from 'node:module';
 import { mkdirSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
+import { openMenu } from './layoutb.mjs';
 
 const { chromium, devices } = createRequire(import.meta.url)('playwright');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -139,6 +140,7 @@ export async function runCampaignChecks({ browser, url, check, profiles }) {
     // 5. «Menu» in partita chiede conferma; «Continua a giocare» la chiude e la missione resta.
     {
       const t0 = await page.evaluate(() => window.__wz.S.time);
+      await openMenu(page); // su telefono «Esci» sta nel cassetto «Menu»
       await press(page, touch, '#btnExit');
       const ask = await page.evaluate(() => ({
         ov: window.__wz.ui.overlay, title: document.getElementById('ovt')?.textContent, stay: !!document.getElementById('ovStay'), leave: !!document.getElementById('ovLeave'),

@@ -1,5 +1,5 @@
 // Ordini e azioni: li usano sia il giocatore (dal client) sia l'IA nemica.
-import { TILE, MW, MH, P, E, GROUND, DIRT, STRUCTS, TECH, TECH_BY, TIERS, TIER_GATE, UNIT_CAP, BUILDER, WEAPONS } from './data.js';
+import { TILE, MW, MH, P, E, BUILDABLE, STRUCTS, TECH, TECH_BY, TIERS, TIER_GATE, UNIT_CAP, BUILDER, WEAPONS, isHeroDesign } from './data.js';
 import { S, terr, occ, depIdx, explored, idx, emit, makeStruct, markOcc, dStats, enemyCfg } from './world.js';
 import { pathTo, formation } from './path.js';
 import { ftile } from './util.js';
@@ -40,7 +40,7 @@ export function canPlace(owner, type, tx, ty, margin = 0) {
   for (let y = ty - margin; y < ty + D.h + margin; y++) for (let x = tx - margin; x < tx + D.w + margin; x++) {
     if (x < 0 || y < 0 || x >= MW || y >= MH) return false;
     const i = x + y * MW, v = terr[i];
-    if (v !== GROUND && v !== DIRT) return false;
+    if (!BUILDABLE[v]) return false;
     if (occ[i]) return false;
     const inside = x >= tx && x < tx + D.w && y >= ty && y < ty + D.h;
     if (inside && depIdx[i] >= 0) return false;
@@ -67,13 +67,14 @@ export function demolish(s) {
   for (const u of S.ents) if (u.kind === 'unit' && !u.dead && u.order.t === 'build' && u.order.id === s.id) setIdle(u);
   return true;
 }
+// Mezzi che contano per UNIT_CAP: quelli in campo e quelli in coda; la Macchina di Villo non conta.
 export function unitCount(owner) {
-  return S.ents.filter(e => e.owner === owner && e.kind === 'unit' && !e.dead).length
+  return S.ents.filter(e => e.owner === owner && e.kind === 'unit' && !e.dead && !e.hero).length
     + S.ents.reduce((a, e) => a + (e.owner === owner && e.queue ? e.queue.length : 0), 0);
 }
-// d = progetto del mezzo, oppure null per un geniere (solo dal comando).
+// d = progetto del mezzo, oppure null per un geniere (solo dal comando). La Macchina di Villo non si produce.
 export function enqueue(s, d, owner) {
-  if (s.built < 1 || s.queue.length >= 5) return false;
+  if (s.built < 1 || s.queue.length >= 5 || isHeroDesign(d)) return false;
   if (unitCount(owner) >= UNIT_CAP) { if (owner === P) emit('toast', { text: `Limite di ${UNIT_CAP} mezzi raggiunto.`, kind: 'warn' }); return false; }
   let cost, total;
   if (d) { const st = dStats(d, owner); cost = st.cost; total = st.time; } else { cost = BUILDER.cost; total = BUILDER.time; }

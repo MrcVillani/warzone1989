@@ -1,8 +1,8 @@
 // Missioni della campagna: preparazione della partita (basi, mezzi, ricerche del nemico), obiettivo e fine missione.
 // I dati delle missioni sono in MISSIONS (data.js); qui solo le regole.
-import { TILE, MW, MH, P, E, B0, B1, DIFF, MISSION_DIFF, TECH_BY } from './data.js';
-import { S, deposits, occ, emit, makeStruct, makeUnit } from './world.js';
-import { formation, reachMap, passable } from './path.js';
+import { TILE, MW, MH, P, E, B0, B1, DIFF, MISSION_DIFF, TECH_BY, MISSION_BY, RANKS, HERO, VETERANS_MAX } from './data.js';
+import { S, deposits, occ, emit, makeStruct, makeUnit, makeHero, setRank, rankFor, setWeather, validDesign } from './world.js';
+import { formation, reachMap, passable, nearestFree } from './path.js';
 import { canPlace } from './orders.js';
 import { alive } from './sim.js';
 
@@ -80,8 +80,30 @@ function edgeSpawns() {
   }
   return out;
 }
+// Veterani validi tra quelli passati a newGame: progetto conosciuto, grado 0–3 (almeno quello che spetta
+// all'esperienza), esperienza almeno quella del grado; al più VETERANS_MAX.
+function cleanVeterans(list) {
+  const out = [];
+  for (const v of list) {
+    if (out.length >= VETERANS_MAX) break;
+    if (!v || !validDesign(v.d)) continue;
+    const r0 = Math.max(0, Math.min(RANKS.length - 1, Math.floor(Number(v.rank) || 0))), xp0 = Math.max(0, Number(v.xp) || 0);
+    const rank = Math.max(r0, rankFor(xp0));
+    out.push({ d: { c: v.d.c, p: v.d.p, w: v.d.w }, rank, xp: Math.max(xp0, RANKS[rank].kills) });
+  }
+  return out;
+}
+// Casella libera accanto al comando del giocatore per la Macchina di Villo: sotto l'angolo del comando verso il
+// centro della mappa; `taken` (facoltativo): caselle già date ad altri mezzi (indici x + y * MW).
+function heroSpot(hq, taken) {
+  const tiles = formation(hq.tx + hq.w, hq.ty + hq.h, 12, false);
+  const t = (taken && tiles.find(([x, y]) => !taken.has(x + y * MW))) || tiles[0] || nearestFree(hq.tx + hq.w, hq.ty + hq.h, false, 8);
+  return t ? [(t[0] + 0.5) * TILE, (t[1] + 0.5) * TILE] : null;
+}
 // Prepara la missione M sullo stato appena creato (mappa già pronta): risorse, basi, mezzi, ricerche, obiettivo.
-export function setupMission(M) {
+// veterans: mezzi portati dalla missione prima (opts.veterans di newGame). I veterani e la Macchina di Villo si
+// creano per ultimi, così tutti gli altri mezzi ed edifici hanno gli stessi id di una missione senza di loro.
+export function setupMission(M, veterans = []) {
   const pl = M.player || {}, en = M.enemy || {};
   S.ecfg = enemyConfig(en, S.diff);
   S.ai.waveSize = S.ecfg.w0; S.ai.nextAttack = S.ecfg.first;
@@ -89,7 +111,7 @@ export function setupMission(M) {
   S.res = [pl.res ?? 600, en.res ?? 600];
   S.timeLimit = M.timeLimit ?? null;
   // giocatore: comando in B0, edifici, genieri e mezzi
-  makeStruct('hq', P, B0.x - 1, B0.y - 1, true);
+  const hqP = makeStruct('hq', P, B0.x - 1, B0.y - 1, true);
   buildBase(P, B0.x, B0.y, B1, pl.structs || []);
   spawnUnits(P, B0.x - 1, B0.y + 3, Array(pl.builders ?? 2).fill(null));
   spawnUnits(P, B0.x + 3, B0.y, pl.units || []);
@@ -106,6 +128,17 @@ export function setupMission(M) {
     bases.push({ x: cx, y: cy });
   }
   if (S.ecfg.waves === 'edge') S.ai.spawns = edgeSpawns();
+  // veterani: sulle caselle subito dopo quelle dei mezzi di partenza, già al loro grado
+  const vets = cleanVeterans(veterans), n0 = (pl.units || []).length;
+  const tiles = formation(B0.x + 3, B0.y, n0 + vets.length, false), taken = new Set(tiles.map(t => t[0] + t[1] * MW));
+  for (const t of formation(B0.x - 1, B0.y + 3, pl.builders ?? 2, false)) taken.add(t[0] + t[1] * MW);
+  vets.forEach((v, i) => {
+    const t = tiles[n0 + i]; if (!t) return;
+    const u = makeUnit(P, v.d, (t[0] + 0.5) * TILE, (t[1] + 0.5) * TILE);
+    u.xp = v.xp; setRank(u, v.rank); u.hp = u.max; u.vet = true;
+  });
+  // Macchina di Villo accanto al comando
+  if (S.hero) { const at = heroSpot(hqP, taken); if (at) makeHero(at[0], at[1]); }
   S.objective = initObjective(M.objective, bases);
   updateObjective();
 }
@@ -137,6 +170,30 @@ export function noteKill(e) {
   const o = S.objective;
   if (!o || e.owner !== E || o.killed == null || !keyEnt(o.type, e)) return;
   o.killed++;
+}
+
+/* ---------- Macchina di Villo ----------
+   Se viene distrutta non si perde nulla: resta «dal carrozziere» per HERO.respawn secondi di gioco e poi torna accanto
+   al comando del giocatore, se ce n'è ancora uno, con il grado e l'esperienza di prima. Non conta per la sconfitta
+   (alive) né per gli obiettivi. */
+// Chiamata da kill (combat.js) quando l'entità distrutta è la Macchina di Villo.
+export function heroDown(e) {
+  const h = S.hero;
+  if (!h || h.id !== e.id) return;
+  h.id = 0; h.down = true; h.backAt = S.time + HERO.respawn; h.xp = e.xp || 0; h.rank = e.rank || 0;
+  emit('hero', { state: 'down', x: e.x, y: e.y });
+  emit('toast', { text: `La macchina di Villo è dal carrozziere: torna tra ${HERO.respawn} secondi.`, kind: 'warn' });
+}
+// Da step: quando è l'ora rimette in campo la Macchina di Villo accanto al comando (se manca il comando aspetta).
+export function heroTick() {
+  const h = S.hero;
+  if (!h || !h.down || S.time < h.backAt) return;
+  const hq = S.ents.find(e => !e.dead && e.owner === P && e.type === 'hq' && e.built >= 1);
+  const at = hq && heroSpot(hq);
+  if (!at) return;
+  const u = makeHero(at[0], at[1]);
+  emit('hero', { state: 'back', x: u.x, y: u.y });
+  emit('toast', { text: 'La macchina di Villo è tornata.', kind: '' });
 }
 const mmss = s => { s = Math.max(0, Math.ceil(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -190,6 +247,9 @@ export function updateObjective() {
       if (o.stage === 1 && S.time >= o.secs) {
         o.stage = 2;
         emit('toast', { text: 'I rinforzi sono arrivati: passa al contrattacco e distruggi la base nemica.', kind: 'warn' });
+        // Con la fase 2 può cambiare anche il meteo (MISSIONS[].weather2).
+        const M = MISSION_BY[S.mission];
+        if (M && M.weather2) setWeather(M.weather2);
       }
       // La base nemica distrutta già durante la resistenza vince subito la missione.
       if (o.stage === 1 && alive(E)) {

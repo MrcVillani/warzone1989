@@ -10,7 +10,9 @@ const save = (k, v) => { try { localStorage.setItem(k, String(v)); } catch (e) {
 
 let enabled = load(KEY_ON, '1') !== '0';
 let volume = clamp(parseFloat(load(KEY_VOL, '0.6')) || 0, 0, 1);
-let ac = null, master = null, sfxBus = null, noiseBuf = null;
+let ac = null, master = null, sfxBus = null, noiseBuf = null, muffle = null, rainG = null, rainLow = null;
+// Meteo: pioggia (0–1) per il rumore di fondo, nebbia (0–1) per il filtro che ovatta gli effetti; tuoni suonati.
+const wxA = { rain: 0, fog: 0, thunders: 0 };
 const MAX_VOICES = 14;
 const voices = [];          // istanti di fine delle voci in corso (tempo dell'AudioContext)
 const last = {};            // ultimo avvio di ogni suono, per limitare le ripetizioni
@@ -37,7 +39,7 @@ export function setVolume(v) {
   if (ac && enabled) master.gain.setTargetAtTime(volume, ac.currentTime, 0.03);
   changed();
 }
-export function audioState() { return { ctx: ac ? ac.state : 'none', enabled, volume, voices: voices.length, ...stats }; }
+export function audioState() { return { ctx: ac ? ac.state : 'none', enabled, volume, voices: voices.length, ...stats, weather: { rain: +wxA.rain.toFixed(2), fog: +wxA.fog.toFixed(2), muffle: Math.round(muffleHz(wxA.fog)), thunders: wxA.thunders } }; }
 
 /* ---------- avvio al primo gesto ---------- */
 function ensure() {
@@ -48,7 +50,9 @@ function ensure() {
     const comp = ac.createDynamicsCompressor();
     comp.threshold.value = -16; comp.knee.value = 12; comp.ratio.value = 5; comp.attack.value = 0.004; comp.release.value = 0.2;
     sfxBus = ac.createGain(); sfxBus.gain.value = 0.9;
-    sfxBus.connect(comp); comp.connect(master); master.connect(ac.destination);
+    // filtro passa-basso sugli effetti: aperto di norma, si chiude un poco con la nebbia (suoni ovattati)
+    muffle = ac.createBiquadFilter(); muffle.type = 'lowpass'; muffle.Q.value = 0.5; muffle.frequency.value = muffleHz(wxA.fog);
+    sfxBus.connect(muffle); muffle.connect(comp); comp.connect(master); master.connect(ac.destination);
     const len = ac.sampleRate * 2; noiseBuf = ac.createBuffer(1, len, ac.sampleRate);
     const ch = noiseBuf.getChannelData(0); for (let i = 0; i < len; i++) ch[i] = Math.random() * 2 - 1;
     startAmbient();
@@ -258,6 +262,51 @@ const SFX = {
     tone(d, tt, 'sine', 784, 784, 0.02, 0.3, 0.9); tone(d, tt, 'sine', 1568, 1568, 0.02, 0.05, 0.6);
     return tt - t + 0.9;
   } },
+  // tuono lontano: brontolio grave che rotola e si spegne piano, senza schiocco
+  thunder: { g: 0.5, gap: 3, pr: true, f(d, t) {
+    const n = 3 + Math.floor(Math.random() * 3); let tt = t;
+    for (let i = 0; i < n; i++) { noise(d, tt, 'lowpass', 150 + Math.random() * 110, 46, 0.7, 0.12 + Math.random() * 0.2, 0.8 - i * 0.1, 1.3 + Math.random() * 0.9); tt += 0.28 + Math.random() * 0.5; }
+    tone(d, t + 0.05, 'sine', 52, 30, 0.3, 0.35, 2.4);
+    return tt - t + 2.4;
+  } },
+  // promozione di un mezzo: due note che salgono, con un filo di brillantezza
+  rank: { g: 0.3, gap: 0.6, pr: true, ui: true, f(d, t) {
+    tone(d, t, 'triangle', 660, 660, 0.005, 0.3, 0.14); tone(d, t + 0.1, 'triangle', 990, 990, 0.005, 0.32, 0.3);
+    return tone(d, t + 0.1, 'sine', 1980, 1980, 0.005, 0.06, 0.25) + 0.1;
+  } },
+  // un mezzo diventa asso: squillo a tre note con l'ottava sopra e una coda che luccica
+  rankAce: { g: 0.34, gap: 1, pr: true, ui: true, f(d, t) {
+    let tt = t; for (const f of [523, 659, 784]) { tone(d, tt, 'sawtooth', f, f, 0.006, 0.12, 0.13); tone(d, tt, 'triangle', f, f, 0.006, 0.26, 0.16); tt += 0.09; }
+    tone(d, tt, 'triangle', 1046, 1046, 0.01, 0.34, 0.7); tone(d, tt, 'sine', 2093, 2093, 0.01, 0.08, 0.5);
+    for (let i = 0; i < 5; i++) tone(d, tt + 0.08 + i * 0.07, 'sine', 2600 + Math.random() * 1800, 2600, 0.002, 0.04, 0.09);
+    return tt - t + 0.75;
+  } },
+  // «Bassi a palla» della Macchina di Villo: colpo di bassi profondo che scende, con il battito della cassa
+  heroBass: { g: 0.8, gap: 0.12, pr: true, f(d, t) {
+    tone(d, t, 'sine', 118, 38, 0.004, 1, 0.42); tone(d, t, 'triangle', 59, 30, 0.006, 0.5, 0.5);
+    tone(d, t + 0.16, 'sine', 96, 34, 0.004, 0.7, 0.3);
+    noise(d, t, 'lowpass', 900, 120, 1.2, 0.002, 0.3, 0.12);
+    return 0.6;
+  } },
+  // esplosione dei bassi: tonfo sordo, onda di pressione e crepitio elettrico
+  heroBoom: { g: 0.9, gap: 0.1, pr: true, f(d, t) {
+    noise(d, t, 'highpass', 2600, 2600, 0.7, 0.001, 0.3, 0.04);
+    tone(d, t, 'sine', 84, 22, 0.004, 1, 0.9); tone(d, t + 0.07, 'sine', 48, 22, 0.01, 0.6, 0.8);
+    for (let i = 0; i < 4; i++) noise(d, t + 0.05 + Math.random() * 0.4, 'bandpass', 3000 + Math.random() * 2500, 1800, 6, 0.001, 0.16, 0.05);
+    return noise(d, t, 'lowpass', 1500, 90, 0.8, 0.005, 0.85, 1.3);
+  } },
+  // colpo grosso: il più profondo del gioco, con due riprese della cassa e una coda lunghissima
+  heroBig: { g: 1, gap: 0.3, pr: true, f(d, t) {
+    noise(d, t, 'highpass', 2000, 2000, 0.7, 0.002, 0.35, 0.07);
+    tone(d, t, 'sine', 70, 18, 0.005, 1, 1.8); tone(d, t + 0.12, 'sine', 44, 18, 0.01, 0.8, 1.6); tone(d, t + 0.34, 'sine', 62, 20, 0.006, 0.7, 1.1);
+    noise(d, t, 'lowpass', 1200, 60, 0.7, 0.01, 0.95, 3);
+    for (let i = 0; i < 9; i++) noise(d, t + 0.1 + Math.random() * 1.4, 'bandpass', 2600 + Math.random() * 3000, 1500, 6, 0.001, 0.14, 0.06);
+    return 3.1;
+  } },
+  // sgommata: stridio breve di gomme sull'asfalto
+  skid: { g: 0.22, gap: 0.8, f(d, t) {
+    noise(d, t, 'bandpass', 1900, 1300, 9, 0.03, 0.6, 0.5); return noise(d, t, 'bandpass', 2700, 2100, 12, 0.05, 0.3, 0.4);
+  } },
   // clic dell'interfaccia
   click: { g: 0.28, gap: 0.03, pr: true, ui: true, f(d, t) { tone(d, t, 'square', 2300, 1500, 0.001, 0.12, 0.018); return 0.03; } },
 };
@@ -315,12 +364,14 @@ export function fxSound(e) {
   if (!ready()) return;
   switch (e.k) {
     case 'flash': {
+      if (e.hero) { sfx('heroBass', e.x, e.y, e.owner); break; }
       const w = e.w || (e.s <= 3 ? 'MG' : 'CN');
       sfx(FLASH_SFX[w] || 'cn', e.x, e.y, e.owner); break;
     }
     case 'repair': sfx('repair', e.x2, e.y2, e.owner); break;
     case 'boom': {
       const kind = e.kind || (e.size >= 2 ? 'struct' : Math.abs(e.size - 0.9) < 0.01 ? 'unit' : 'shot');
+      if (e.hero && kind === 'shot') { sfx(e.big ? 'heroBig' : 'heroBoom', e.x, e.y, P); break; }
       sfx(kind === 'struct' ? 'boomStruct' : kind === 'unit' ? 'boomUnit' : e.size < 0.8 ? 'impRk' : e.size >= 1.5 ? 'impHw' : 'impMo', e.x, e.y, kind === 'shot' ? undefined : e.owner);
       break;
     }
@@ -344,4 +395,35 @@ function startAmbient() {
   sf.type = 'bandpass'; sf.frequency.value = 3200; sf.Q.value = 0.9; sg.gain.value = 0.006;
   s.connect(sf); sf.connect(sg); sg.connect(bus); s.start();
   lfo(0.23, 0.005, sg.gain);
+  // pioggia: scroscio chiaro (rumore tra 1 e 8 kHz, con un respiro lento) e battito grave sul terreno; muta col sereno
+  const r = loopNoise(), rh = ac.createBiquadFilter(), rl = ac.createBiquadFilter();
+  rh.type = 'highpass'; rh.frequency.value = 1100; rh.Q.value = 0.4; rl.type = 'lowpass'; rl.frequency.value = 7800; rl.Q.value = 0.4;
+  rainG = ac.createGain(); rainG.gain.value = 0;
+  r.connect(rh); rh.connect(rl); rl.connect(rainG); rainG.connect(bus); r.start();
+  lfo(0.13, 900, rl.frequency);
+  const r2 = loopNoise(), rf = ac.createBiquadFilter(); rf.type = 'bandpass'; rf.frequency.value = 420; rf.Q.value = 0.5;
+  rainLow = ac.createGain(); rainLow.gain.value = 0;
+  r2.connect(rf); rf.connect(rainLow); rainLow.connect(bus); r2.start();
+  applyWeather(0.05);
+}
+// Suono del meteo: rain e fog da 0 a 1 (weather.js li porta piano al valore del tempo in corso). La pioggia è nel
+// fondo sonoro, quindi segue volume e acceso/spento come tutto il resto; la nebbia chiude un poco il filtro degli
+// effetti (la musica resta com'è).
+const RAIN_G = 0.085, RAIN_LOW_G = 0.05;
+const muffleHz = fog => 20000 * Math.pow(2400 / 20000, clamp(fog, 0, 1));
+function applyWeather(tc) {
+  if (!ac || !rainG) return;
+  const t = ac.currentTime;
+  rainG.gain.setTargetAtTime(RAIN_G * wxA.rain, t, tc); rainLow.gain.setTargetAtTime(RAIN_LOW_G * wxA.rain, t, tc);
+  muffle.frequency.setTargetAtTime(muffleHz(wxA.fog), t, tc);
+}
+export function weatherAudio(rain, fog) {
+  rain = clamp(+rain || 0, 0, 1); fog = clamp(+fog || 0, 0, 1);
+  if (Math.abs(rain - wxA.rain) < 0.02 && Math.abs(fog - wxA.fog) < 0.02 && (rain === wxA.rain || (rain > 0 && rain < 1)) && (fog === wxA.fog || (fog > 0 && fog < 1))) return;
+  wxA.rain = rain; wxA.fog = fog; applyWeather(0.25);
+}
+// Tuono lontano tra delay secondi (dopo il lampo). Si conta anche se l'audio è spento, per i test.
+export function thunder(delay = 0) {
+  wxA.thunders++;
+  setTimeout(() => { if (ready()) start('thunder', 0.7 + Math.random() * 0.3, (Math.random() - 0.5) * 1.2); }, Math.max(0, delay) * 1000);
 }

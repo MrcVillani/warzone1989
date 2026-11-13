@@ -82,3 +82,9 @@ disponibili. Missione 8 dopo la correzione (N=10): «normale» 5/10, mediana 22,
   dai guadi. Il giocatore può usarli.
 - **Sensibilità al caso**: lo stesso ritocco può spostare il risultato di qualche vittoria su 20. Prima di fissare
   nuovi valori conviene simulare con N più alto.
+
+## Piano 10: Macchina di Villo
+
+Autoplay, «normale», 6 partite per missione, con la Macchina di Villo: 47 vittorie su 48 (missioni 1–7 tutte vinte,
+la 8 a 5 su 6; senza di lei 39 su 48). Il proprietario ha scelto di lasciarla potentissima: la campagna più facile
+è voluta. `HERO.levels` in `engine/data.js` è il punto dove ridurla, se un giorno servisse.

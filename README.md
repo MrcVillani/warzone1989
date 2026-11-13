@@ -30,6 +30,7 @@ L'APK si installa a mano sul telefono (Android 7.0 o successivo), consentendo l'
 | `npm test` | test del motore in Node |
 | `npm run e2e` | build e prova nel browser (serve Playwright con Chromium) |
 | `npm run android` | crea l'APK Android in `dist/warzone1989.apk` |
+| `npm run ost` | registra la colonna sonora della campagna in MP3 in `dist/ost/` |
 | `npm run check` | tutti i test |
 
 Il codice è diviso tra il motore (`engine/`, regole di gioco senza DOM) e il client (`client/`, disegno e
